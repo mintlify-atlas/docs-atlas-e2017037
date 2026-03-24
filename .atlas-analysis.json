@@ -1,0 +1,89 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "COLMAP",
+  "projectDescription": "COLMAP is a general-purpose Structure-from-Motion (SfM) and Multi-View Stereo (MVS) pipeline with graphical and command-line interfaces for 3D reconstruction from ordered or unordered image collections.",
+  "theme": "aspen",
+  "primaryColor": "#1D6FA4",
+  "lightColor": "#E8F4FB",
+  "darkColor": "#0D3B5E",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "install", "tutorial"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": ["concepts", "features", "cameras", "rigs"]
+          },
+          {
+            "group": "Interfaces",
+            "pages": ["gui", "cli"]
+          },
+          {
+            "group": "Data",
+            "pages": ["database", "format", "datasets"]
+          }
+        ]
+      },
+      {
+        "tab": "PyCOLMAP",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["pycolmap/index"]
+          },
+          {
+            "group": "API Reference",
+            "pages": ["pycolmap/pycolmap", "pycolmap/cost_functions"]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Help",
+            "pages": ["faq", "contribution"]
+          },
+          {
+            "group": "Project",
+            "pages": ["changelog", "bibliography", "license"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Incremental, global, and hierarchical Structure-from-Motion (SfM) pipelines",
+    "Multi-View Stereo (MVS) dense 3D reconstruction with patch-match stereo",
+    "Feature extraction with SIFT and ALIKED (including LightGlue neural matching)",
+    "Graphical User Interface (GUI) for interactive 3D model visualization",
+    "Command-line interface with 40+ commands for automated scripting",
+    "Python bindings via PyCOLMAP (pip install pycolmap)",
+    "Rig/multi-sensor support for stereo cameras, panoramic setups, and AR/VR devices",
+    "Multiple camera models (SIMPLE_PINHOLE, PINHOLE, SIMPLE_RADIAL, OPENCV, FULL_OPENCV, etc.)",
+    "Vocabulary tree image retrieval for scalable large-dataset matching",
+    "Model manipulation tools (aligner, converter, merger, splitter, transformer)"
+  ],
+  "publicApiSurface": [
+    "colmap automatic_reconstructor",
+    "colmap feature_extractor",
+    "colmap exhaustive_matcher / sequential_matcher / vocab_tree_matcher / spatial_matcher",
+    "colmap mapper (incremental SfM)",
+    "colmap global_mapper (global SfM)",
+    "colmap hierarchical_mapper",
+    "colmap patch_match_stereo",
+    "colmap stereo_fusion",
+    "colmap poisson_mesher / delaunay_mesher",
+    "colmap model_converter / model_aligner / model_merger",
+    "colmap bundle_adjuster",
+    "colmap view_graph_calibrator",
+    "colmap rig_configurator",
+    "pycolmap Python API (pip install pycolmap)",
+    "PyCOLMAP cost functions for bundle adjustment (requires pyceres)"
+  ]
+}
