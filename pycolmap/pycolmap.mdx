@@ -1,0 +1,893 @@
+---
+title: "pycolmap API reference"
+description: "Complete Python API reference for the pycolmap module, covering data structures, geometry, feature extraction, matching, reconstruction, and dense MVS."
+---
+
+This page documents the public API of the `pycolmap` Python module. All classes and functions are accessed directly from the `pycolmap` namespace unless noted otherwise.
+
+## Enumerations
+
+### `Device`
+
+Controls whether GPU acceleration is used.
+
+```python
+pycolmap.Device.auto   # Use GPU if available, fall back to CPU
+pycolmap.Device.cpu    # Force CPU
+pycolmap.Device.cuda   # Force CUDA GPU
+```
+
+### `CameraModelId`
+
+Identifies a camera projection model.
+
+```python
+pycolmap.CameraModelId.SIMPLE_PINHOLE
+pycolmap.CameraModelId.PINHOLE
+pycolmap.CameraModelId.SIMPLE_RADIAL
+pycolmap.CameraModelId.SIMPLE_RADIAL_FISHEYE
+pycolmap.CameraModelId.RADIAL
+pycolmap.CameraModelId.RADIAL_FISHEYE
+pycolmap.CameraModelId.OPENCV
+pycolmap.CameraModelId.OPENCV_FISHEYE
+pycolmap.CameraModelId.FULL_OPENCV
+pycolmap.CameraModelId.FOV
+pycolmap.CameraModelId.THIN_PRISM_FISHEYE
+pycolmap.CameraModelId.SIMPLE_DIVISION
+pycolmap.CameraModelId.DIVISION
+pycolmap.CameraModelId.FISHEYE
+```
+
+### `SensorType`
+
+```python
+pycolmap.SensorType.CAMERA
+pycolmap.SensorType.IMU
+pycolmap.SensorType.INVALID
+```
+
+### `CameraMode`
+
+Controls how cameras are assigned during image import.
+
+```python
+pycolmap.CameraMode.AUTO       # Infer from EXIF
+pycolmap.CameraMode.SINGLE     # One shared camera for all images
+pycolmap.CameraMode.PER_FOLDER # One camera per directory
+pycolmap.CameraMode.PER_IMAGE  # One camera per image
+```
+
+---
+
+## Geometry
+
+### `Rotation3d`
+
+Represents a 3D rotation. Can be constructed from a quaternion `[x,y,z,w]`, a 3×3 rotation matrix, or an axis-angle 3-vector.
+
+```python
+class pycolmap.Rotation3d
+```
+
+| Method / property | Signature | Description |
+|---|---|---|
+| `quat` | `→ np.ndarray[float64, [4,1]]` | Quaternion `[x,y,z,w]`. |
+| `matrix()` | `→ np.ndarray[float64, [3,3]]` | 3×3 rotation matrix. |
+| `norm()` | `→ float` | Quaternion norm. |
+| `angle()` | `→ float` | Rotation angle in radians. |
+| `angle_to(other)` | `→ float` | Angle to another rotation. |
+| `inverse()` | `→ Rotation3d` | Inverse rotation. |
+| `normalize()` | `→ None` | Normalize the quaternion in-place. |
+
+```python
+import numpy as np
+import pycolmap
+
+# Construct from quaternion [x, y, z, w]
+rot = pycolmap.Rotation3d(np.array([0.0, 0.0, 0.0, 1.0]))
+print(rot.matrix())
+```
+
+### `Rigid3d`
+
+A 3D rigid (SE(3)) transformation with rotation and translation. Used to represent camera-from-world poses.
+
+```python
+class pycolmap.Rigid3d
+```
+
+| Method / property | Signature | Description |
+|---|---|---|
+| `rotation` | `Rotation3d` | Rotation component. |
+| `translation` | `np.ndarray[float64, [3,1]]` | Translation component. |
+| `params` | `np.ndarray[float64, [7,1]]` | Flattened `[qx,qy,qz,qw, tx,ty,tz]`. |
+| `matrix()` | `→ np.ndarray[float64, [3,4]]` | 3×4 projection matrix `[R | t]`. |
+| `inverse()` | `→ Rigid3d` | Inverse transform. |
+| `tgt_origin_in_src()` | `→ np.ndarray[float64, [3,1]]` | Target origin expressed in source frame (camera center in world). |
+| `adjoint()` | `→ np.ndarray[float64, [6,6]]` | Adjoint matrix. |
+| `adjoint_inverse()` | `→ np.ndarray[float64, [6,6]]` | Adjoint of the inverse. |
+| `interpolate(other, t)` | `→ Rigid3d` | Interpolate with another pose at `t ∈ [0,1]`. |
+
+```python
+import pycolmap
+import numpy as np
+
+pose = pycolmap.Rigid3d()
+pose.rotation = pycolmap.Rotation3d(np.eye(3))
+pose.translation = np.array([1.0, 0.0, 0.0])
+print(pose.matrix())        # [[R | t]]
+print(pose.inverse().tgt_origin_in_src())  # Camera center in world
+```
+
+### `Sim3d`
+
+A 3D similarity (Sim(3)) transformation with scale, rotation, and translation. Used for reconstruction alignment.
+
+```python
+class pycolmap.Sim3d
+```
+
+| Method / property | Signature | Description |
+|---|---|---|
+| `scale` | `float` | Uniform scale factor. |
+| `rotation` | `Rotation3d` | Rotation component. |
+| `translation` | `np.ndarray[float64, [3,1]]` | Translation component. |
+| `matrix()` | `→ np.ndarray[float64, [3,4]]` | 3×4 similarity matrix. |
+| `inverse()` | `→ Sim3d` | Inverse transform. |
+| `transform_camera_world(cam_from_world)` | `→ Rigid3d` | Transform a camera-from-world pose. |
+
+### `AlignedBox3d`
+
+Axis-aligned 3D bounding box.
+
+| Property | Description |
+|---|---|
+| `min` | Minimum corner `[3,1]`. |
+| `max` | Maximum corner `[3,1]`. |
+| `diagonal()` | Diagonal length. |
+| `contains_point(p)` | Whether the box contains point `p`. |
+| `contains_bbox(b)` | Whether this box contains another box. |
+
+---
+
+## Core data structures
+
+### `Camera`
+
+Represents a camera with a specific projection model and intrinsic parameters.
+
+```python
+class pycolmap.Camera
+```
+
+| Property / method | Type / signature | Description |
+|---|---|---|
+| `camera_id` | `int` | Unique camera ID. |
+| `model` | `CameraModelId` | Projection model. |
+| `model_name` | `str` | Model name string. |
+| `width` | `int` | Image width in pixels. |
+| `height` | `int` | Image height in pixels. |
+| `params` | `np.ndarray[float64]` | Raw parameter vector. |
+| `focal_length` | `float` | Focal length (single-value models). |
+| `focal_length_x` | `float` | Horizontal focal length. |
+| `focal_length_y` | `float` | Vertical focal length. |
+| `principal_point_x` | `float` | Principal point x-coordinate. |
+| `principal_point_y` | `float` | Principal point y-coordinate. |
+| `has_prior_focal_length` | `bool` | Whether a prior focal length is set. |
+| `mean_focal_length()` | `→ float` | Mean of focal lengths. |
+| `calibration_matrix()` | `→ np.ndarray[float64, [3,3]]` | 3×3 calibration matrix K. |
+| `cam_from_img(point2D)` | `→ np.ndarray[float64, [2,1]]` | Unproject image point to normalised camera ray. |
+| `img_from_cam(point3D)` | `→ np.ndarray[float64, [2,1]]` | Project normalised camera point to image. |
+| `cam_from_img_threshold(threshold)` | `→ float` | Convert pixel threshold to normalised units. |
+| `rescale(scale)` | `→ None` | Rescale camera for a different image resolution. |
+| `is_undistorted()` | `→ bool` | Whether the camera has no distortion. |
+| `verify_params()` | `→ bool` | Validate the parameter count. |
+| `params_to_string()` | `→ str` | Serialise parameters as comma-separated string. |
+| `set_params_from_string(s)` | `→ bool` | Parse parameters from comma-separated string. |
+| `focal_length_idxs()` | `→ list[int]` | Indices of focal length params. |
+| `principal_point_idxs()` | `→ list[int]` | Indices of principal-point params. |
+| `extra_params_idxs()` | `→ list[int]` | Indices of distortion params. |
+| `create(model_id, width, height, params)` | `→ Camera` | Static factory method. |
+| `summary()` | `→ str` | Human-readable summary. |
+| `todict()` | `→ dict` | Serialise to dictionary. |
+
+```python
+import pycolmap
+
+camera = pycolmap.Camera()
+camera.model = pycolmap.CameraModelId.SIMPLE_RADIAL
+camera.width = 1920
+camera.height = 1080
+camera.params = [1000.0, 960.0, 540.0, 0.1]  # f, cx, cy, k
+print(camera.calibration_matrix())
+```
+
+### `Image`
+
+Represents a captured image with associated 2D feature observations and a pose.
+
+```python
+class pycolmap.Image
+```
+
+| Property / method | Type / signature | Description |
+|---|---|---|
+| `image_id` | `int` | Unique image ID. |
+| `camera_id` | `int` | Associated camera ID. |
+| `frame_id` | `int` | Associated frame ID. |
+| `name` | `str` | Image file name. |
+| `camera` | `Camera` | Linked camera object. |
+| `frame` | `Frame` | Linked frame object. |
+| `has_pose` | `bool` | Whether a pose is registered. |
+| `points2D` | `Point2DList` | List of 2D feature observations. |
+| `cam_from_world()` | `→ Rigid3d` | Camera-from-world pose. |
+| `projection_center()` | `→ np.ndarray[float64, [3,1]]` | Camera centre in world coordinates. |
+| `viewing_direction()` | `→ np.ndarray[float64, [3,1]]` | Principal axis direction in world. |
+| `project_point(point3D)` | `→ np.ndarray[float64, [2,1]]` | Project a 3D point onto the image. |
+| `point2D(idx)` | `→ Point2D` | Access a single 2D observation. |
+| `num_points2D()` | `→ int` | Total number of keypoints. |
+| `num_points3D()` | `→ int` | Number of keypoints with a 3D match. |
+| `has_point3D(point3D_id)` | `→ bool` | Whether a 3D point is observed. |
+| `set_point3D_for_point2D(idx, point3D_id)` | `→ None` | Assign a 3D match to a 2D point. |
+| `reset_point3D_for_point2D(idx)` | `→ None` | Remove a 3D match from a 2D point. |
+| `get_observation_point2D_idxs()` | `→ list[int]` | Indices of 2D points with 3D matches. |
+| `summary()` | `→ str` | Human-readable summary. |
+| `todict()` | `→ dict` | Serialise to dictionary. |
+
+```python
+import pycolmap
+
+reconstruction = pycolmap.Reconstruction("/path/to/sparse/0")
+for image_id, image in reconstruction.images.items():
+    pose = image.cam_from_world()
+    center = image.projection_center()
+    print(f"{image.name}: center = {center}")
+```
+
+### `Point2D`
+
+A single 2D feature observation within an image.
+
+| Property | Type | Description |
+|---|---|---|
+| `xy` | `np.ndarray[float64, [2,1]]` | Pixel coordinates. |
+| `point3D_id` | `int` | Linked 3D point ID (or `INVALID_POINT3D_ID`). |
+| `has_point3D_id()` | `bool` | Whether a 3D match exists. |
+
+### `Point3D`
+
+A triangulated 3D landmark.
+
+```python
+class pycolmap.Point3D
+```
+
+| Property / method | Type / signature | Description |
+|---|---|---|
+| `xyz` | `np.ndarray[float64, [3,1]]` | 3D position. |
+| `color` | `np.ndarray[uint8, [3,1]]` | RGB colour. |
+| `error` | `float` | Mean reprojection error. |
+| `track` | `Track` | Track of 2D observations. |
+| `has_error()` | `→ bool` | Whether error has been computed. |
+| `summary()` | `→ str` | Human-readable summary. |
+| `todict()` | `→ dict` | Serialise to dictionary. |
+
+### `Track` / `TrackElement`
+
+A `Track` stores the list of `TrackElement` instances that link 2D observations across images to a 3D point.
+
+| `TrackElement` property | Description |
+|---|---|
+| `image_id` | Image the observation belongs to. |
+| `point2D_idx` | Index of the 2D point in that image. |
+
+---
+
+## Reconstruction
+
+### `Reconstruction`
+
+A sparse 3D reconstruction containing cameras, images, frames, rigs, and 3D points.
+
+```python
+class pycolmap.Reconstruction
+
+# Constructors
+Reconstruction()                  # Empty
+Reconstruction(path)              # Read from disk
+Reconstruction(reconstruction)    # Copy
+```
+
+**I/O methods**
+
+| Method | Signature | Description |
+|---|---|---|
+| `read(path)` | `→ None` | Read (binary preferred, falls back to text). |
+| `write(output_dir)` | `→ None` | Write in binary format. |
+| `read_binary(path)` | `→ None` | Read binary format explicitly. |
+| `read_text(path)` | `→ None` | Read text format explicitly. |
+| `write_binary(path)` | `→ None` | Write binary format explicitly. |
+| `write_text(path)` | `→ None` | Write text format explicitly. |
+
+**Counts**
+
+| Method | Returns | Description |
+|---|---|---|
+| `num_cameras()` | `int` | Total cameras. |
+| `num_images()` | `int` | Total images. |
+| `num_reg_images()` | `int` | Registered (posed) images. |
+| `num_frames()` | `int` | Total frames. |
+| `num_reg_frames()` | `int` | Registered frames. |
+| `num_points3D()` | `int` | Total 3D points. |
+| `num_rigs()` | `int` | Total rigs. |
+
+**Accessors**
+
+| Property / method | Description |
+|---|---|
+| `cameras` | Dict-like map of `camera_id → Camera`. |
+| `images` | Dict-like map of `image_id → Image`. |
+| `frames` | Dict-like map of `frame_id → Frame`. |
+| `points3D` | Dict-like map of `point3D_id → Point3D`. |
+| `rigs` | Dict-like map of `rig_id → Rig`. |
+| `camera(camera_id)` | Direct accessor for a single camera. |
+| `image(image_id)` | Direct accessor for a single image. |
+| `frame(frame_id)` | Direct accessor for a single frame. |
+| `point3D(point3D_id)` | Direct accessor for a single 3D point. |
+| `rig(rig_id)` | Direct accessor for a single rig. |
+| `reg_image_ids()` | List of registered image IDs. |
+| `reg_frame_ids()` | List of registered frame IDs. |
+| `point3D_ids()` | Set of valid 3D point IDs. |
+
+**Mutation**
+
+| Method | Description |
+|---|---|
+| `add_camera(camera)` | Add a camera. |
+| `add_camera_with_trivial_rig(camera)` | Add a camera and a matching trivial rig. |
+| `add_image(image)` | Add an image (camera must already exist). |
+| `add_image_with_trivial_frame(image)` | Add image and a frame with the same ID. |
+| `add_frame(frame)` | Add a frame. |
+| `add_rig(rig)` | Add a rig. |
+| `add_point3D(xyz, track, color)` | Add a 3D point and return its ID. |
+| `exists_camera(id)` | Check camera ID exists. |
+| `exists_image(id)` | Check image ID exists. |
+| `exists_point3D(id)` | Check 3D point ID exists. |
+| `is_valid()` | Check internal consistency. |
+
+```python
+import pycolmap
+
+# Load an existing reconstruction
+rec = pycolmap.Reconstruction("/sparse/0")
+print(f"{rec.num_reg_images()} registered images")
+print(f"{rec.num_points3D()} 3D points")
+
+# Iterate over 3D points
+for point3D_id, point3D in rec.points3D.items():
+    if point3D.error < 1.0:
+        print(point3D.xyz, point3D.color)
+
+# Save a copy
+rec.write("/sparse_copy")
+```
+
+### `ReconstructionManager`
+
+Manages multiple reconstruction models produced by incremental mapping.
+
+---
+
+## Database
+
+### `Database`
+
+Interface for reading and writing the COLMAP SQLite database.
+
+```python
+# Open or create a database
+db = pycolmap.Database("/path/to/database.db")
+```
+
+Key methods: `read_cameras()`, `read_images()`, `read_keypoints(image_id)`, `read_descriptors(image_id)`, `read_matches(image_id1, image_id2)`, `write_camera(camera)`, `write_image(image)`, `write_keypoints(image_id, keypoints)`, `write_descriptors(image_id, descriptors)`, `write_matches(image_id1, image_id2, matches)`.
+
+### `DatabaseTransaction`
+
+Use as a context manager to batch database writes for performance.
+
+```python
+import pycolmap
+
+db = pycolmap.Database("/path/to/database.db")
+with pycolmap.DatabaseTransaction(db):
+    for cam in cameras:
+        db.write_camera(cam)
+```
+
+---
+
+## Pipeline functions
+
+### `import_images`
+
+Import images into the COLMAP database.
+
+```python
+pycolmap.import_images(
+    database_path: PathLike,
+    image_path: PathLike,
+    camera_mode: CameraMode = CameraMode.AUTO,
+    image_names: Sequence[str] = [],
+    options: ImageReaderOptions = ImageReaderOptions(),
+) -> None
+```
+
+### `extract_features`
+
+Extract features (SIFT by default) from images and write them to the database.
+
+```python
+pycolmap.extract_features(
+    database_path: PathLike,
+    image_path: PathLike,
+    image_names: Sequence[str] = [],
+    camera_mode: CameraMode = CameraMode.AUTO,
+    reader_options: ImageReaderOptions = ImageReaderOptions(),
+    extraction_options: FeatureExtractionOptions = FeatureExtractionOptions(),
+    device: Device = Device.auto,
+) -> None
+```
+
+### `match_exhaustive`
+
+Match every image pair in the database.
+
+```python
+pycolmap.match_exhaustive(
+    database_path: PathLike,
+    matching_options: FeatureMatchingOptions = FeatureMatchingOptions(),
+    pairing_options: ExhaustivePairingOptions = ExhaustivePairingOptions(),
+    verification_options: TwoViewGeometryOptions = TwoViewGeometryOptions(),
+    device: Device = Device.auto,
+) -> None
+```
+
+### `match_sequential`
+
+Match each image against its sequential neighbours.
+
+```python
+pycolmap.match_sequential(
+    database_path: PathLike,
+    matching_options: FeatureMatchingOptions = FeatureMatchingOptions(),
+    pairing_options: SequentialPairingOptions = SequentialPairingOptions(),
+    verification_options: TwoViewGeometryOptions = TwoViewGeometryOptions(),
+    device: Device = Device.auto,
+) -> None
+```
+
+### `match_vocabtree`
+
+Match images using a vocabulary tree for scalable retrieval.
+
+```python
+pycolmap.match_vocabtree(
+    database_path: PathLike,
+    matching_options: FeatureMatchingOptions = FeatureMatchingOptions(),
+    pairing_options: VocabTreePairingOptions = VocabTreePairingOptions(),
+    verification_options: TwoViewGeometryOptions = TwoViewGeometryOptions(),
+    device: Device = Device.auto,
+) -> None
+```
+
+### `match_spatial`
+
+Match images using GPS or other spatial location priors.
+
+```python
+pycolmap.match_spatial(
+    database_path: PathLike,
+    matching_options: FeatureMatchingOptions = FeatureMatchingOptions(),
+    pairing_options: SpatialPairingOptions = SpatialPairingOptions(),
+    verification_options: TwoViewGeometryOptions = TwoViewGeometryOptions(),
+    device: Device = Device.auto,
+) -> None
+```
+
+### `incremental_mapping`
+
+Recover 3D points and unknown camera poses using incremental structure-from-motion.
+
+```python
+pycolmap.incremental_mapping(
+    database_path: PathLike,
+    image_path: PathLike,
+    output_path: PathLike,
+    options: IncrementalPipelineOptions = IncrementalPipelineOptions(),
+    input_path: PathLike = '',
+    initial_image_pair_callback: Callable = None,
+    next_image_callback: Callable = None,
+) -> dict[int, Reconstruction]
+```
+
+Returns a dictionary of reconstruction models indexed by their ID.
+
+### `triangulate_points`
+
+Triangulate 3D points for a reconstruction with known camera poses.
+
+```python
+pycolmap.triangulate_points(
+    reconstruction: Reconstruction,
+    database_path: PathLike,
+    image_path: PathLike,
+    output_path: PathLike,
+    clear_points: bool = True,
+    options: IncrementalPipelineOptions = IncrementalPipelineOptions(),
+    refine_intrinsics: bool = False,
+) -> Reconstruction
+```
+
+### `bundle_adjustment`
+
+Jointly refine 3D points and camera poses.
+
+```python
+pycolmap.bundle_adjustment(
+    reconstruction: Reconstruction,
+    options: BundleAdjustmentOptions = BundleAdjustmentOptions(),
+) -> None
+```
+
+### `undistort_images`
+
+Undistort images and write results to disk.
+
+```python
+pycolmap.undistort_images(
+    output_path: PathLike,
+    input_path: PathLike,
+    image_path: PathLike,
+    image_names: Sequence[str] = [],
+    output_type: str = 'COLMAP',
+    copy_policy: FileCopyType = FileCopyType.copy,
+    undistort_options: UndistortCameraOptions = UndistortCameraOptions(),
+) -> None
+```
+
+---
+
+## Dense MVS
+
+<Note>
+  Dense reconstruction functions (`patch_match_stereo`, `stereo_fusion`, and meshing) require CUDA and are only available in CUDA-enabled builds.
+</Note>
+
+### `patch_match_stereo`
+
+Run PatchMatch stereo on undistorted images to produce depth and normal maps.
+
+```python
+pycolmap.patch_match_stereo(
+    workspace_path: PathLike,
+    workspace_format: str = 'COLMAP',
+    pmvs_option_name: str = 'option-all',
+    options: PatchMatchOptions = PatchMatchOptions(),
+) -> None
+```
+
+Key `PatchMatchOptions` fields:
+
+| Option | Default | Description |
+|---|---|---|
+| `max_image_size` | `-1` | Maximum image dimension (-1 = unlimited). |
+| `gpu_index` | `"-1"` | GPU index or comma-separated list for multi-GPU. |
+| `depth_min` | `-1.0` | Minimum depth value. |
+| `depth_max` | `-1.0` | Maximum depth value. |
+| `window_radius` | `5` | NCC half-window size. |
+| `num_samples` | `15` | Monte Carlo samples per pixel. |
+| `min_triangulation_angle` | `1.0` | Minimum triangulation angle (degrees). |
+
+### `stereo_fusion`
+
+Fuse depth maps from `patch_match_stereo` into a dense point cloud.
+
+```python
+pycolmap.stereo_fusion(
+    output_path: PathLike,
+    workspace_path: PathLike,
+    workspace_format: str = 'COLMAP',
+    pmvs_option_name: str = 'option-all',
+    options: StereoFusionOptions = StereoFusionOptions(),
+) -> None
+```
+
+### Meshing
+
+```python
+# Poisson surface reconstruction
+pycolmap.poisson_meshing(
+    input_path: PathLike,
+    output_path: PathLike,
+    options: PoissonMeshingOptions = PoissonMeshingOptions(),
+) -> None
+
+# Delaunay meshing from sparse reconstruction
+pycolmap.sparse_delaunay_meshing(
+    input_path: PathLike,
+    output_path: PathLike,
+    options: DelaunayMeshingOptions = DelaunayMeshingOptions(),
+) -> None
+
+# Delaunay meshing from dense point cloud
+pycolmap.dense_delaunay_meshing(
+    input_path: PathLike,
+    output_path: PathLike,
+    options: DelaunayMeshingOptions = DelaunayMeshingOptions(),
+) -> None
+```
+
+---
+
+## Pose estimation
+
+### `estimate_absolute_pose`
+
+Estimate the absolute pose (PnP) of a camera given 2D–3D correspondences using RANSAC.
+
+```python
+pycolmap.estimate_absolute_pose(
+    points2D: np.ndarray,   # [N, 2]
+    points3D: np.ndarray,   # [N, 3]
+    camera: Camera,
+    estimation_options: AbsolutePoseEstimationOptions = ...,
+    refinement_options: AbsolutePoseRefinementOptions = ...,
+) -> dict  # {"cam_from_world": Rigid3d, "inliers": list[bool], "num_inliers": int}
+```
+
+### `estimate_and_refine_absolute_pose`
+
+Combines RANSAC estimation and non-linear refinement.
+
+```python
+pycolmap.estimate_and_refine_absolute_pose(
+    points2D: np.ndarray,
+    points3D: np.ndarray,
+    camera: Camera,
+    estimation_options: AbsolutePoseEstimationOptions = ...,
+    refinement_options: AbsolutePoseRefinementOptions = ...,
+) -> dict
+```
+
+### `estimate_relative_pose`
+
+Estimate the relative pose between two calibrated cameras using RANSAC on 2D–2D correspondences.
+
+```python
+pycolmap.estimate_relative_pose(
+    points2D1: np.ndarray,  # [N, 2]
+    points2D2: np.ndarray,  # [N, 2]
+    camera1: Camera,
+    camera2: Camera,
+    options: RANSACOptions = ...,
+) -> dict
+```
+
+### `estimate_essential_matrix` / `estimate_fundamental_matrix` / `estimate_homography_matrix`
+
+RANSAC-based two-view geometry estimation.
+
+```python
+pycolmap.estimate_essential_matrix(
+    points2D1: np.ndarray,
+    points2D2: np.ndarray,
+    camera1: Camera,
+    camera2: Camera,
+    options: RANSACOptions = ...,
+) -> dict
+
+pycolmap.estimate_fundamental_matrix(
+    points2D1: np.ndarray,
+    points2D2: np.ndarray,
+    options: RANSACOptions = ...,
+) -> dict
+
+pycolmap.estimate_homography_matrix(
+    points2D1: np.ndarray,
+    points2D2: np.ndarray,
+    options: RANSACOptions = ...,
+) -> dict
+```
+
+---
+
+## Bundle adjustment
+
+### `BundleAdjuster` / `CeresBundleAdjuster`
+
+Base class and Ceres-backed implementation for bundle adjustment.
+
+```python
+adjuster = pycolmap.create_default_bundle_adjuster(
+    options: BundleAdjustmentOptions,
+    config: BundleAdjustmentConfig,
+    reconstruction: Reconstruction,
+)
+adjuster.adjust(reconstruction)
+```
+
+### `BundleAdjustmentOptions`
+
+Top-level BA options.
+
+```python
+opts = pycolmap.BundleAdjustmentOptions()
+opts.loss_function_type = pycolmap.LossFunctionType.CAUCHY
+```
+
+### `CeresBundleAdjustmentOptions`
+
+Ceres-specific solver settings (passed through `BundleAdjustmentOptions.ceres`).
+
+### `BundleAdjustmentConfig`
+
+Specifies which cameras, images, and 3D points are fixed or variable during optimisation.
+
+### `estimate_ba_covariance`
+
+Estimate covariance of poses and 3D points after bundle adjustment.
+
+```python
+pycolmap.estimate_ba_covariance(
+    options: BACovarianceOptions,
+    reconstruction: Reconstruction,
+    adjuster: BundleAdjuster,
+) -> BACovariance
+```
+
+---
+
+## Reconstruction alignment
+
+```python
+# Align via reprojections
+pycolmap.align_reconstructions_via_reprojections(
+    src: Reconstruction,
+    tgt: Reconstruction,
+    max_reproj_error: float,
+) -> bool
+
+# Align via projection centres
+pycolmap.align_reconstructions_via_proj_centers(
+    src: Reconstruction,
+    tgt: Reconstruction,
+    max_proj_center_error: float,
+) -> bool
+
+# Align to GPS/location priors
+pycolmap.align_reconstruction_to_locations(
+    reconstruction: Reconstruction,
+    image_names: list[str],
+    locations: list[np.ndarray],
+    alignment_max_error: float,
+) -> bool
+```
+
+---
+
+## Triangulation utilities
+
+```python
+# Triangulate a single 3D point from two views
+pycolmap.triangulate_point(
+    cam_from_world1: Rigid3d,
+    cam_from_world2: Rigid3d,
+    point2D1: np.ndarray,
+    point2D2: np.ndarray,
+) -> np.ndarray  # [3,1]
+
+# Triangulation angle between two views
+pycolmap.calculate_triangulation_angle(
+    proj_center1: np.ndarray,
+    proj_center2: np.ndarray,
+    point3D: np.ndarray,
+) -> float
+
+# Midpoint triangulation
+pycolmap.triangulate_mid_point(
+    cam_from_world1: Rigid3d,
+    cam_from_world2: Rigid3d,
+    point2D1: np.ndarray,
+    point2D2: np.ndarray,
+) -> np.ndarray
+```
+
+---
+
+## Feature keypoints and matches
+
+### `FeatureKeypoint`
+
+| Property | Description |
+|---|---|
+| `x`, `y` | Sub-pixel position. |
+| `a11`, `a12`, `a21`, `a22` | Affine shape. |
+| `scale`, `angle` | Scale and orientation. |
+
+### Conversion utilities
+
+```python
+# Convert list of FeatureKeypoint to Nx6 matrix
+matrix = pycolmap.keypoints_to_matrix(keypoints)
+
+# Convert back
+keypoints = pycolmap.keypoints_from_matrix(matrix)
+
+# Convert FeatureMatches to Nx2 matrix
+matrix = pycolmap.matches_to_matrix(matches)
+matches = pycolmap.matches_from_matrix(matrix)
+```
+
+---
+
+## GPS and pose priors
+
+### `GPSTransform`
+
+Converts GPS (latitude, longitude, altitude) coordinates to Cartesian (ENU or ECEF).
+
+```python
+gps = pycolmap.GPSTransform(pycolmap.GPSTransfromEllipsoid.WGS84)
+enu = gps.ellipsoid_to_enu(lat, lon, alt, lat0, lon0, alt0)
+```
+
+### `PosePrior`
+
+Stores a prior pose measurement.
+
+| Property | Description |
+|---|---|
+| `position` | Prior position `[3,1]`. |
+| `position_covariance` | 3×3 covariance of the position prior. |
+| `coordinate_system` | `PosePriorCoordinateSystem` value. |
+
+---
+
+## Logging
+
+```python
+import pycolmap
+
+# Set minimum log level
+pycolmap.logging.minloglevel = pycolmap.logging.WARNING
+
+# Log messages
+pycolmap.logging.info("Starting reconstruction")
+pycolmap.logging.warning("Low overlap detected")
+
+# Redirect logs to file
+pycolmap.logging.set_log_destination(
+    pycolmap.logging.INFO,
+    "/tmp/colmap.log",
+)
+```
+
+---
+
+## Utility functions
+
+```python
+# Image pair ID encoding
+pair_id = pycolmap.image_pair_to_pair_id(image_id1, image_id2)
+image_id1, image_id2 = pycolmap.pair_id_to_image_pair(pair_id)
+swap = pycolmap.should_swap_image_pair(image_id1, image_id2)
+
+# Set global random seed
+pycolmap.set_random_seed(42)
+
+# Quaternion averaging
+averaged = pycolmap.average_quaternions(quaternions, weights)
+
+# Pose interpolation
+interpolated = pycolmap.interpolate_camera_poses(poses, times, query_time)
+```

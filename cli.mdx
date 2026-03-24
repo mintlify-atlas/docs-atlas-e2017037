@@ -1,0 +1,808 @@
+---
+title: "Command-line Interface"
+description: "Run COLMAP's full reconstruction pipeline and 40+ commands from the terminal for automated scripting on any platform."
+---
+
+The CLI provides access to all of COLMAP's functionality for automated scripting. Each capability is implemented as a subcommand of the `colmap` executable.
+
+```bash
+# List all available commands
+colmap help
+
+# Show options for a specific command
+colmap feature_extractor -h
+```
+
+<Note>
+On Windows use `COLMAP.bat` in place of `colmap`. When running from the CMake build folder, the executable is at `./src/colmap/exe/colmap`.
+</Note>
+
+Options can be passed directly on the command line or via a `.ini` project file:
+
+```bash
+colmap feature_extractor --project_path /path/to/project.ini
+```
+
+## Automatic reconstruction
+
+The fastest way to reconstruct a dataset. Your project folder must contain an `images/` subdirectory:
+
+```
+/path/to/project/
+└── images/
+    ├── image1.jpg
+    ├── image2.jpg
+    └── ...
+```
+
+```bash
+DATASET_PATH=/path/to/project
+
+colmap automatic_reconstructor \
+    --workspace_path $DATASET_PATH \
+    --image_path $DATASET_PATH/images
+```
+
+Key options for `automatic_reconstructor`:
+
+| Option | Values | Description |
+|---|---|---|
+| `--quality` | `LOW`, `MEDIUM`, `HIGH`, `EXTREME` | Overall quality preset |
+| `--data_type` | `INDIVIDUAL`, `VIDEO`, `INTERNET` | Capture scenario |
+| `--feature` | `SIFT`, `ALIKED` | Feature extraction algorithm |
+| `--mapper` | `INCREMENTAL`, `HIERARCHICAL`, `GLOBAL` | SfM pipeline |
+| `--mesher` | `POISSON`, `DELAUNAY` | Surface reconstruction method |
+
+## Step-by-step incremental pipeline
+
+For full control over individual parameters, run each stage separately:
+
+<Steps>
+  <Step title="Extract features">
+    ```bash
+    DATASET_PATH=/path/to/dataset
+
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images
+    ```
+  </Step>
+  <Step title="Match features">
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db
+    ```
+  </Step>
+  <Step title="Sparse reconstruction">
+    ```bash
+    mkdir -p $DATASET_PATH/sparse
+
+    colmap mapper \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --output_path $DATASET_PATH/sparse
+    ```
+  </Step>
+  <Step title="Undistort images">
+    ```bash
+    mkdir -p $DATASET_PATH/dense
+
+    colmap image_undistorter \
+        --image_path $DATASET_PATH/images \
+        --input_path $DATASET_PATH/sparse/0 \
+        --output_path $DATASET_PATH/dense \
+        --output_type COLMAP \
+        --max_image_size 2000
+    ```
+  </Step>
+  <Step title="Dense stereo matching">
+    ```bash
+    colmap patch_match_stereo \
+        --workspace_path $DATASET_PATH/dense \
+        --workspace_format COLMAP \
+        --PatchMatchStereo.geom_consistency true
+    ```
+  </Step>
+  <Step title="Fuse depth maps">
+    ```bash
+    colmap stereo_fusion \
+        --workspace_path $DATASET_PATH/dense \
+        --workspace_format COLMAP \
+        --input_type geometric \
+        --output_path $DATASET_PATH/dense/fused.ply
+    ```
+  </Step>
+  <Step title="Mesh reconstruction">
+    <CodeGroup>
+
+    ```bash poisson mesher
+    colmap poisson_mesher \
+        --input_path $DATASET_PATH/dense/fused.ply \
+        --output_path $DATASET_PATH/dense/meshed-poisson.ply
+    ```
+
+    ```bash delaunay mesher
+    colmap delaunay_mesher \
+        --input_path $DATASET_PATH/dense \
+        --output_path $DATASET_PATH/dense/meshed-delaunay.ply
+    ```
+
+    </CodeGroup>
+  </Step>
+  <Step title="Simplify and texture mesh (optional)">
+    ```bash
+    # Reduce mesh size (retains 25% of faces)
+    colmap mesh_simplifier \
+        --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+        --output_path $DATASET_PATH/dense/meshed-poisson-simplified.ply \
+        --MeshSimplification.target_face_ratio 0.25
+
+    # Produce a textured mesh with UV atlas
+    colmap mesh_texturer \
+        --workspace_path $DATASET_PATH/dense \
+        --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+        --output_path $DATASET_PATH/dense/textured
+    ```
+  </Step>
+</Steps>
+
+## Global SfM pipeline
+
+Replace the `mapper` step with `global_mapper` for the global SfM pipeline. The global approach solves for all camera poses simultaneously using rotation averaging, which can be faster for large datasets.
+
+<Warning>
+`view_graph_calibrator` modifies camera intrinsics and two-view geometries in the database in-place. Work on a copy of the database before running it.
+</Warning>
+
+<Steps>
+  <Step title="Extract features and match">
+    ```bash
+    DATASET_PATH=/path/to/dataset
+
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images
+
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db
+    ```
+  </Step>
+  <Step title="Calibrate intrinsics (recommended)">
+    ```bash
+    # Copy database before modifying it
+    cp $DATASET_PATH/database.db $DATASET_PATH/database_global.db
+
+    colmap view_graph_calibrator \
+        --database_path $DATASET_PATH/database_global.db
+    ```
+  </Step>
+  <Step title="Run global mapper">
+    ```bash
+    mkdir -p $DATASET_PATH/sparse
+
+    colmap global_mapper \
+        --database_path $DATASET_PATH/database_global.db \
+        --image_path $DATASET_PATH/images \
+        --output_path $DATASET_PATH/sparse
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+If reliable intrinsics are not available from EXIF or lab calibration, always run `view_graph_calibrator` before `global_mapper`. This was the default behavior in [GLOMAP](https://github.com/colmap/glomap).
+</Tip>
+
+## Running without a display
+
+COLMAP automatically switches to CUDA when no display is attached (e.g., on a cluster or cloud VM). If no CUDA device is available, disable GPU manually:
+
+```bash
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --FeatureExtraction.use_gpu 0
+
+colmap exhaustive_matcher \
+    --database_path $DATASET_PATH/database.db \
+    --FeatureMatching.use_gpu 0
+```
+
+## Visualizing outputs
+
+- **Sparse model**: Open the COLMAP GUI and choose **File > Import model**, then select the folder containing `cameras.txt`, `images.txt`, and `points3D.txt`.
+- **Dense point cloud** (`fused.ply`): Choose **File > Import model from...** and select `fused.ply`.
+- **Dense mesh** (`meshed-*.ply`): Use an external viewer such as Meshlab. COLMAP cannot display meshes directly.
+
+## Command reference
+
+### Reconstruction
+
+<AccordionGroup>
+  <Accordion title="automatic_reconstructor">
+    Automatically runs the full sparse and dense reconstruction pipeline for a set of input images. Combines feature extraction, matching, SfM, MVS, and meshing in a single command.
+
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path WORKSPACE \
+        --image_path IMAGES \
+        --quality HIGH \
+        --data_type INDIVIDUAL \
+        --feature SIFT \
+        --mapper INCREMENTAL \
+        --mesher POISSON
+    ```
+  </Accordion>
+
+  <Accordion title="mapper">
+    Incremental sparse 3D reconstruction using SfM. Registers images one-by-one and triangulates 3D points.
+
+    ```bash
+    colmap mapper \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --output_path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="global_mapper">
+    Global SfM pipeline. Solves for all camera poses simultaneously using rotation averaging and global positioning. Faster than incremental SfM on large datasets but requires good focal length priors. Run `view_graph_calibrator` first if intrinsics are unknown.
+
+    ```bash
+    colmap global_mapper \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --output_path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="hierarchical_mapper">
+    Hierarchical SfM that partitions the scene into overlapping submodels, reconstructs each independently, then merges them. Useful for large-scale scenes. Run point triangulation and bundle adjustment after merging.
+
+    ```bash
+    colmap hierarchical_mapper \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --output_path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="pose_prior_mapper">
+    Sparse reconstruction using pose priors (e.g., GPS or IMU data) to guide or constrain the SfM pipeline.
+
+    ```bash
+    colmap pose_prior_mapper \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --output_path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="image_registrator">
+    Registers new images in the database against an existing model without running bundle adjustment or triangulation. Useful when new images are added after an initial `mapper` run.
+
+    ```bash
+    colmap image_registrator \
+        --database_path DATABASE \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="point_triangulator">
+    Triangulates all observations of registered images in an existing model using feature matches from the database.
+
+    ```bash
+    colmap point_triangulator \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="bundle_adjuster">
+    Runs global bundle adjustment on a reconstructed scene. Use after `image_registrator` or when refining camera intrinsics.
+
+    ```bash
+    colmap bundle_adjuster \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Feature extraction and matching
+
+<AccordionGroup>
+  <Accordion title="feature_extractor">
+    Extracts keypoints and descriptors for all images and stores them in the database. Supports SIFT and ALIKED feature types.
+
+    ```bash
+    colmap feature_extractor \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --ImageReader.camera_model SIMPLE_RADIAL \
+        --FeatureExtraction.use_gpu 1
+    ```
+
+    Key options:
+    - `--ImageReader.camera_model` — camera model (default: `SIMPLE_RADIAL`)
+    - `--ImageReader.single_camera` — share one camera model across all images
+    - `--FeatureExtraction.type` — `SIFT` or `ALIKED`
+    - `--FeatureExtraction.use_gpu` — enable/disable GPU (default: `1`)
+    - `--SiftExtraction.max_num_features` — max features per image (default: `8192`)
+  </Accordion>
+
+  <Accordion title="feature_importer">
+    Imports pre-computed features for a set of images into the database instead of extracting them.
+
+    ```bash
+    colmap feature_importer \
+        --database_path DATABASE \
+        --image_path IMAGES \
+        --import_path FEATURES_PATH
+    ```
+  </Accordion>
+
+  <Accordion title="exhaustive_matcher">
+    Matches every image against every other image. Best accuracy but O(n²) cost. Suitable for small-to-medium datasets.
+
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="sequential_matcher">
+    Matches each image to the next N images in sequence. Suitable for ordered video captures.
+
+    ```bash
+    colmap sequential_matcher \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="vocab_tree_matcher">
+    Matches images using a vocabulary tree for fast approximate nearest-neighbor retrieval. Scalable to very large datasets.
+
+    ```bash
+    colmap vocab_tree_matcher \
+        --database_path DATABASE \
+        --VocabTreeMatching.vocab_tree_path VOCAB_TREE.bin
+    ```
+  </Accordion>
+
+  <Accordion title="spatial_matcher">
+    Matches images based on spatial proximity using GPS or other position priors.
+
+    ```bash
+    colmap spatial_matcher \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="transitive_matcher">
+    Propagates matches transitively: if A matches B and B matches C, also match A–C. Useful to fill gaps left by other matchers.
+
+    ```bash
+    colmap transitive_matcher \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="matches_importer">
+    Imports pre-computed feature matches from a file into the database.
+
+    ```bash
+    colmap matches_importer \
+        --database_path DATABASE \
+        --match_list_path MATCHES.txt
+    ```
+  </Accordion>
+
+  <Accordion title="geometric_verifier">
+    Runs standalone geometric verification on existing feature matches. Estimates two-view geometries (fundamental/essential matrices, homographies) for matched image pairs.
+
+    ```bash
+    colmap geometric_verifier \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="guided_geometric_verifier">
+    Runs geometric verification guided by an existing sparse reconstruction. Uses known relative camera poses to improve match quality.
+
+    ```bash
+    colmap guided_geometric_verifier \
+        --database_path DATABASE \
+        --input_path INPUT_MODEL
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Dense reconstruction
+
+<AccordionGroup>
+  <Accordion title="image_undistorter">
+    Undistorts images and exports them for MVS or external dense reconstruction software (e.g., CMVS/PMVS).
+
+    ```bash
+    colmap image_undistorter \
+        --image_path IMAGES \
+        --input_path SPARSE_MODEL \
+        --output_path DENSE \
+        --output_type COLMAP \
+        --max_image_size 2000
+    ```
+  </Accordion>
+
+  <Accordion title="image_undistorter_standalone">
+    Undistorts images without requiring a full sparse model, using only camera parameter files.
+
+    ```bash
+    colmap image_undistorter_standalone \
+        --image_path IMAGES \
+        --input_path CAMERAS_PATH \
+        --output_path OUTPUT
+    ```
+  </Accordion>
+
+  <Accordion title="image_rectifier">
+    Stereo-rectifies camera pairs and undistorts images for stereo disparity estimation.
+
+    ```bash
+    colmap image_rectifier \
+        --image_path IMAGES \
+        --input_path SPARSE_MODEL \
+        --output_path OUTPUT
+    ```
+  </Accordion>
+
+  <Accordion title="patch_match_stereo">
+    Dense 3D reconstruction using multi-view patch-match stereo. Must be run after `image_undistorter`.
+
+    ```bash
+    colmap patch_match_stereo \
+        --workspace_path DENSE \
+        --workspace_format COLMAP \
+        --PatchMatchStereo.geom_consistency true
+    ```
+  </Accordion>
+
+  <Accordion title="stereo_fusion">
+    Fuses depth maps from `patch_match_stereo` into a single colored point cloud (PLY format).
+
+    ```bash
+    colmap stereo_fusion \
+        --workspace_path DENSE \
+        --workspace_format COLMAP \
+        --input_type geometric \
+        --output_path DENSE/fused.ply
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Meshing
+
+<AccordionGroup>
+  <Accordion title="poisson_mesher">
+    Reconstructs a watertight surface mesh from a fused point cloud using Poisson surface reconstruction.
+
+    ```bash
+    colmap poisson_mesher \
+        --input_path DENSE/fused.ply \
+        --output_path DENSE/meshed-poisson.ply
+    ```
+  </Accordion>
+
+  <Accordion title="delaunay_mesher">
+    Reconstructs a surface mesh from a sparse or dense point cloud using graph-cut Delaunay triangulation with visibility voting.
+
+    ```bash
+    colmap delaunay_mesher \
+        --input_path DENSE \
+        --output_path DENSE/meshed-delaunay.ply
+    ```
+  </Accordion>
+
+  <Accordion title="mesh_simplifier">
+    Simplifies a triangle mesh (PLY) using Quadric Error Metric (QEM) decimation, reducing face count while preserving shape.
+
+    ```bash
+    colmap mesh_simplifier \
+        --input_path INPUT.ply \
+        --output_path OUTPUT.ply \
+        --MeshSimplification.target_face_ratio 0.1
+    ```
+
+    Key options:
+    - `--MeshSimplification.target_face_ratio` — fraction of faces to retain (default: `0.1`)
+    - `--MeshSimplification.max_error` — maximum quadric error threshold; `0` = disabled
+    - `--MeshSimplification.boundary_weight` — boundary edge preservation weight (default: `1000`)
+    - `--MeshSimplification.num_threads` — multi-threaded initialization
+  </Accordion>
+
+  <Accordion title="mesh_texturer">
+    Produces a texture atlas and UV coordinates for a triangle mesh using calibrated multi-view images.
+
+    ```bash
+    colmap mesh_texturer \
+        --workspace_path DENSE \
+        --input_path DENSE/meshed-poisson.ply \
+        --output_path DENSE/textured
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Model tools
+
+<AccordionGroup>
+  <Accordion title="model_analyzer">
+    Prints statistics about a reconstruction (number of images, points, tracks, reprojection errors, etc.).
+
+    ```bash
+    colmap model_analyzer \
+        --path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="model_aligner">
+    Aligns or geo-registers a model to a coordinate system defined by given camera centers (e.g., GPS positions).
+
+    ```bash
+    colmap model_aligner \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL \
+        --ref_images_path REF_IMAGES.txt
+    ```
+  </Accordion>
+
+  <Accordion title="model_orientation_aligner">
+    Aligns the coordinate axes of a model using a Manhattan world assumption.
+
+    ```bash
+    colmap model_orientation_aligner \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="model_comparer">
+    Compares statistics between two reconstructions.
+
+    ```bash
+    colmap model_comparer \
+        --input_path1 MODEL1 \
+        --input_path2 MODEL2
+    ```
+  </Accordion>
+
+  <Accordion title="model_converter">
+    Converts a COLMAP model to another format such as PLY or NVM.
+
+    ```bash
+    colmap model_converter \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL \
+        --output_type PLY
+    ```
+  </Accordion>
+
+  <Accordion title="model_cropper">
+    Crops a model to a specific bounding box defined in GPS or model coordinates.
+
+    ```bash
+    colmap model_cropper \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL \
+        --gps_min_lat LAT --gps_max_lat LAT \
+        --gps_min_lon LON --gps_max_lon LON
+    ```
+  </Accordion>
+
+  <Accordion title="model_merger">
+    Attempts to merge two disconnected reconstructions if they share common registered images.
+
+    ```bash
+    colmap model_merger \
+        --input_path1 MODEL1 \
+        --input_path2 MODEL2 \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="model_clusterer">
+    Splits a large reconstruction into smaller sub-model clusters.
+
+    ```bash
+    colmap model_clusterer \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_DIR
+    ```
+  </Accordion>
+
+  <Accordion title="model_splitter">
+    Divides a model into rectangular sub-models defined by bounding box coordinates, maximum extent, or number of subdivisions per dimension.
+
+    ```bash
+    colmap model_splitter \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_DIR \
+        --split_type extent
+    ```
+  </Accordion>
+
+  <Accordion title="model_transformer">
+    Transforms the coordinate frame of a model (translation, rotation, scale).
+
+    ```bash
+    colmap model_transformer \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="color_extractor">
+    Extracts and stores the mean color for all 3D points in a model from the source images.
+
+    ```bash
+    colmap color_extractor \
+        --image_path IMAGES \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="point_filtering">
+    Filters sparse 3D points in a model by enforcing criteria such as minimum track length and maximum reprojection error.
+
+    ```bash
+    colmap point_filtering \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Database tools
+
+<AccordionGroup>
+  <Accordion title="database_creator">
+    Creates an empty COLMAP SQLite database with the required schema.
+
+    ```bash
+    colmap database_creator \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="database_cleaner">
+    Cleans specific or all tables in a COLMAP database.
+
+    ```bash
+    colmap database_cleaner \
+        --database_path DATABASE
+    ```
+  </Accordion>
+
+  <Accordion title="database_merger">
+    Merges two databases into a new one. Cameras are not merged; unique camera and image IDs may change.
+
+    ```bash
+    colmap database_merger \
+        --database_path1 DATABASE1 \
+        --database_path2 DATABASE2 \
+        --merged_database_path MERGED
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Vocabulary tree tools
+
+<AccordionGroup>
+  <Accordion title="vocab_tree_builder">
+    Builds a vocabulary tree from a database of extracted features. Run this once; the same tree can be reused for other datasets.
+
+    As a rule of thumb, use at least 10–100× more features than visual words. Pre-trained trees are available at [https://demuc.de/colmap/](https://demuc.de/colmap/).
+
+    ```bash
+    colmap vocab_tree_builder \
+        --database_path DATABASE \
+        --vocab_tree_path VOCAB_TREE.bin
+    ```
+  </Accordion>
+
+  <Accordion title="vocab_tree_matcher">
+    Performs image matching using a pre-built vocabulary tree. Scalable to large datasets.
+
+    ```bash
+    colmap vocab_tree_matcher \
+        --database_path DATABASE \
+        --VocabTreeMatching.vocab_tree_path VOCAB_TREE.bin
+    ```
+  </Accordion>
+
+  <Accordion title="vocab_tree_retriever">
+    Performs vocabulary-tree-based image retrieval to find visually similar images.
+
+    ```bash
+    colmap vocab_tree_retriever \
+        --database_path DATABASE \
+        --VocabTreeRetrieval.vocab_tree_path VOCAB_TREE.bin \
+        --output_index OUTPUT_INDEX
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Calibration and geometry
+
+<AccordionGroup>
+  <Accordion title="view_graph_calibrator">
+    Calibrates camera intrinsics from pairwise geometric relations in the view graph. Estimates focal lengths and other intrinsic parameters. Run before `global_mapper` when no reliable prior intrinsics are available.
+
+    ```bash
+    colmap view_graph_calibrator \
+        --database_path DATABASE
+    ```
+
+    <Warning>
+    This command modifies the database in-place. Always work on a copy.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="rotation_averager">
+    Runs standalone rotation averaging on the view graph. Estimates global camera rotations from pairwise relative rotations.
+
+    ```bash
+    colmap rotation_averager \
+        --database_path DATABASE \
+        --output_path MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="rig_configurator">
+    Configures multi-sensor rigs and frames after feature extraction. Used for stereo cameras, 360° panoramas, and AR/VR devices.
+
+    ```bash
+    colmap rig_configurator \
+        --database_path DATABASE \
+        --rig_config_path RIG_CONFIG.json
+    ```
+  </Accordion>
+
+  <Accordion title="project_generator">
+    Generates project configuration files at different quality settings.
+
+    ```bash
+    colmap project_generator \
+        --output_path PROJECT_DIR \
+        --quality HIGH
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Image tools
+
+<AccordionGroup>
+  <Accordion title="image_filterer">
+    Filters images from a sparse reconstruction based on quality criteria.
+
+    ```bash
+    colmap image_filterer \
+        --database_path DATABASE \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL
+    ```
+  </Accordion>
+
+  <Accordion title="image_deleter">
+    Deletes specific images from a sparse reconstruction.
+
+    ```bash
+    colmap image_deleter \
+        --input_path INPUT_MODEL \
+        --output_path OUTPUT_MODEL \
+        --image_ids_path IDS.txt
+    ```
+  </Accordion>
+</AccordionGroup>

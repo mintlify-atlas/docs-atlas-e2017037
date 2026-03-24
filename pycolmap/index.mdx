@@ -1,0 +1,134 @@
+---
+title: "PyCOLMAP"
+description: "Python bindings for COLMAP exposing structure-from-motion and multi-view stereo capabilities."
+---
+
+PyCOLMAP exposes most capabilities of COLMAP to Python, letting you drive reconstruction pipelines, manipulate 3D models, run pose estimation, and perform bundle adjustment — all from Python.
+
+## Installation
+
+<Steps>
+  <Step title="Install from PyPI">
+    Pre-built wheels for Linux, macOS, and Windows are published to PyPI at each release.
+
+    <CodeGroup>
+
+    ```bash Standard (CPU)
+    pip install pycolmap
+    ```
+
+    ```bash CUDA 12 (Linux only)
+    pip install pycolmap-cuda12
+    ```
+
+    </CodeGroup>
+
+    <Note>
+      GPU-accelerated wheels (`pycolmap-cuda12`) are currently only available for Linux. They enable CUDA-accelerated feature extraction and dense reconstruction.
+    </Note>
+  </Step>
+
+  <Step title="Build from source (optional)">
+    To build PyCOLMAP from source you must first install COLMAP from source.
+
+    <CodeGroup>
+
+    ```bash Linux / macOS
+    python -m pip install .
+    ```
+
+    ```powershell Windows (PowerShell)
+    python -m pip install . `
+        --cmake.define.CMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+        --cmake.define.VCPKG_TARGET_TRIPLET="x64-windows"
+    ```
+
+    </CodeGroup>
+
+    Windows builds require COLMAP to be installed via VCPKG first.
+  </Step>
+
+  <Step title="Install PyCeres (optional)">
+    Cost functions for custom bundle adjustment require [PyCeres](https://github.com/cvg/pyceres), installed in the same way as PyCOLMAP.
+
+    ```bash
+    pip install pyceres
+    ```
+
+    <Tip>
+      If you built PyCOLMAP from source, build PyCeres from source too so both share the same Ceres solver installation.
+    </Tip>
+  </Step>
+</Steps>
+
+## What PyCOLMAP provides
+
+PyCOLMAP covers the full reconstruction pipeline and the underlying data structures.
+
+<CardGroup cols={2}>
+  <Card title="Reconstruction pipeline" icon="wand-magic-sparkles">
+    `import_images`, `extract_features`, `match_exhaustive`, `incremental_mapping`, `bundle_adjustment`, `triangulate_points`
+  </Card>
+  <Card title="Dense MVS" icon="cube">
+    `patch_match_stereo`, `stereo_fusion`, `poisson_meshing`, `delaunay_meshing`
+  </Card>
+  <Card title="Data structures" icon="database">
+    `Reconstruction`, `Camera`, `Image`, `Point3D`, `Frame`, `Rig`, `Database`
+  </Card>
+  <Card title="Geometry and pose" icon="compass">
+    `Rigid3d`, `Sim3d`, `Rotation3d`, absolute/relative pose estimation, RANSAC
+  </Card>
+  <Card title="Feature extraction & matching" icon="magnifying-glass">
+    SIFT, ALIKED, LightGlue (ONNX), exhaustive / sequential / spatial / vocab-tree matching
+  </Card>
+  <Card title="Bundle adjustment" icon="sliders">
+    `BundleAdjuster`, `CeresBundleAdjuster`, covariance estimation, cost functions
+  </Card>
+</CardGroup>
+
+## Quick example
+
+The following shows a minimal structure-from-motion pipeline from images on disk to a sparse 3D reconstruction.
+
+```python
+import pycolmap
+from pathlib import Path
+
+image_dir = Path("/data/images")
+output_dir = Path("/data/output")
+output_dir.mkdir(exist_ok=True)
+
+database_path = output_dir / "database.db"
+
+# 1. Extract SIFT features from each image.
+pycolmap.extract_features(
+    database_path=database_path,
+    image_path=image_dir,
+)
+
+# 2. Match features between every pair of images.
+pycolmap.match_exhaustive(database_path)
+
+# 3. Run incremental Structure-from-Motion.
+reconstructions = pycolmap.incremental_mapping(
+    database_path=database_path,
+    image_path=image_dir,
+    output_path=output_dir,
+)
+
+for idx, reconstruction in reconstructions.items():
+    print(f"Reconstruction {idx}: "
+          f"{reconstruction.num_reg_images()} images, "
+          f"{reconstruction.num_points3D()} 3D points")
+```
+
+## API reference
+
+<CardGroup cols={2}>
+  <Card title="pycolmap" icon="code" href="/pycolmap/pycolmap">
+    Full reference for all classes, enums, and pipeline functions in the `pycolmap` module.
+  </Card>
+  <Card title="Cost functions" icon="function" href="/pycolmap/cost_functions">
+    Ceres cost functions for custom bundle adjustment, usable with PyCeres.
+  </Card>
+</CardGroup>

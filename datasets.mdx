@@ -1,0 +1,128 @@
+---
+title: "Datasets"
+description: "Benchmark datasets for testing COLMAP and guidance on using your own images."
+---
+
+## Benchmark datasets
+
+Several benchmark datasets are available for download at `https://demuc.de/colmap/datasets/`.
+
+<CardGroup cols={2}>
+  <Card title="Gerrard Hall" icon="building">
+    100 high-resolution images of Gerrard Hall at UNC Chapel Hill. Taken with the same camera at different focus settings using a wide-angle lens.
+  </Card>
+  <Card title="Graham Hall" icon="building-columns">
+    1,273 high-resolution images of the interior and exterior of Graham Memorial Hall at UNC Chapel Hill. Taken with the same camera at different focus settings using a wide-angle lens.
+  </Card>
+  <Card title="Person Hall" icon="school">
+    330 high-resolution images of Person Hall at UNC Chapel Hill. Taken with the same camera using a wide-angle lens.
+  </Card>
+  <Card title="South Building" icon="landmark">
+    128 images of the South Building at UNC Chapel Hill. Taken with the same camera, kindly provided by Christopher Zach.
+  </Card>
+</CardGroup>
+
+## Sample reconstructions
+
+You can view sample reconstructions produced by COLMAP:
+
+**Sparse reconstructions**
+
+- https://youtu.be/PmXqdfBQxfQ
+- https://youtu.be/DIv1aGKqSIk
+
+**Dense reconstructions**
+
+- https://youtu.be/11awtGWSqQU
+
+## Using custom datasets
+
+To use your own images with COLMAP, organize them into a directory before starting a reconstruction.
+
+### Expected directory structure
+
+For a new project, place all images in a single folder:
+
+```text
+my_project/
++── images/
+│   +── image001.jpg
+│   +── image002.jpg
+│   +── ...
+```
+
+For dense reconstruction, COLMAP will populate the workspace with additional subdirectories:
+
+```text
+my_project/
++── images/
+│   +── image001.jpg
+│   +── image002.jpg
+│   +── ...
++── sparse/
+│   +── cameras.bin (or .txt)
+│   +── images.bin (or .txt)
+│   +── points3D.bin (or .txt)
++── stereo/
+│   +── depth_maps/
+│   +── normal_maps/
+│   +── consistency_graphs/
++── fused.ply
+```
+
+### Guidelines for capturing images
+
+<Tip>
+For best reconstruction quality, ensure sufficient visual overlap between adjacent images. Each scene point should appear in at least 2–3 images.
+</Tip>
+
+- Capture images with at least 60–80% overlap between adjacent frames.
+- Avoid motion blur and focus blur.
+- Use consistent exposure settings when possible.
+- Avoid highly reflective or textureless surfaces, which are difficult to match.
+- If using multiple cameras, ensure each image file has a unique name relative to the image folder root.
+
+<Note>
+The `name` column in the COLMAP database stores the **relative path** from the image folder root. This means the database and image folder can be moved as long as the relative structure is preserved.
+</Note>
+
+### Starting a reconstruction
+
+<Steps>
+  <Step title="Create a new project">
+    Open the COLMAP GUI and go to **File > New project**. Set the database path and the image folder path.
+
+    Alternatively, from the CLI:
+
+    ```bash
+    colmap database_creator --database_path /path/to/project/database.db
+    ```
+  </Step>
+  <Step title="Extract features">
+    In the GUI, go to **Processing > Extract features**. From the CLI:
+
+    ```bash
+    colmap feature_extractor \
+        --database_path /path/to/project/database.db \
+        --image_path /path/to/project/images
+    ```
+  </Step>
+  <Step title="Match features">
+    In the GUI, go to **Processing > Match features**. From the CLI:
+
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path /path/to/project/database.db
+    ```
+  </Step>
+  <Step title="Run reconstruction">
+    In the GUI, go to **Reconstruction > Start reconstruction**. From the CLI:
+
+    ```bash
+    colmap mapper \
+        --database_path /path/to/project/database.db \
+        --image_path /path/to/project/images \
+        --output_path /path/to/project/sparse
+    ```
+  </Step>
+</Steps>

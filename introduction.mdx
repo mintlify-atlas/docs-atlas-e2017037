@@ -1,0 +1,111 @@
+---
+title: "COLMAP"
+description: "General-purpose Structure-from-Motion (SfM) and Multi-View Stereo (MVS) pipeline for 3D reconstruction from image collections."
+---
+
+<img
+  src="https://colmap.github.io/_images/sparse.png"
+  alt="Sparse reconstruction of central Rome using 21K photos"
+  style={{ borderRadius: '8px', width: '100%' }}
+/>
+
+## About COLMAP
+
+COLMAP is a general-purpose Structure-from-Motion (SfM) and Multi-View Stereo (MVS) pipeline with a graphical and command-line interface. It offers a wide range of features for reconstruction of ordered and unordered image collections. The software is licensed under the new BSD license.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/install">
+    Download pre-built binaries or build from source on Linux, Mac, or Windows.
+  </Card>
+  <Card title="Tutorial" icon="graduation-cap" href="/tutorial">
+    Get started with automatic reconstruction in a few simple steps.
+  </Card>
+  <Card title="Command-line Interface" icon="terminal" href="/cli">
+    Automate reconstruction workflows with 40+ CLI commands.
+  </Card>
+  <Card title="PyCOLMAP" icon="python" href="/pycolmap/index">
+    Use COLMAP's full capabilities from Python via pip install pycolmap.
+  </Card>
+</CardGroup>
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="Structure-from-Motion" icon="camera" href="/concepts">
+    Incremental, global, and hierarchical SfM pipelines for sparse 3D reconstruction from unordered images.
+  </Card>
+  <Card title="Multi-View Stereo" icon="cube" href="/tutorial">
+    Dense 3D reconstruction using patch-match stereo for detailed point clouds and meshes.
+  </Card>
+  <Card title="Feature Extraction & Matching" icon="magnifying-glass" href="/features">
+    SIFT and ALIKED feature extractors with brute-force and LightGlue neural network matchers.
+  </Card>
+  <Card title="Camera Models" icon="aperture" href="/cameras">
+    Support for 12+ camera models including pinhole, radial, fisheye, and full OpenCV models.
+  </Card>
+  <Card title="Rig Support" icon="circle-nodes" href="/rigs">
+    Multi-sensor rigs for stereo cameras, 360° panoramas, and AR/VR devices.
+  </Card>
+  <Card title="Model Tools" icon="wrench" href="/cli">
+    Aligner, converter, merger, splitter, and transformer for 3D model post-processing.
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Download or build COLMAP">
+    Download [pre-built binaries](https://demuc.de/colmap/) or build from source. See [Installation](/install) for details.
+  </Step>
+  <Step title="Prepare your images">
+    Collect your images in a folder. COLMAP works with both ordered (video) and unordered image sets.
+  </Step>
+  <Step title="Run automatic reconstruction">
+    Use the GUI's **Reconstruction > Automatic reconstruction** or the CLI:
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path /path/to/project \
+        --image_path /path/to/project/images
+    ```
+  </Step>
+  <Step title="Visualize results">
+    View the sparse model in the COLMAP GUI via **File > Import Model**, or use external tools like Meshlab for dense meshes.
+  </Step>
+</Steps>
+
+## Citation
+
+If you use COLMAP in your research, please cite the following papers:
+
+```bibtex
+@inproceedings{schoenberger2016sfm,
+    author={Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
+    title={Structure-from-Motion Revisited},
+    booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
+    year={2016},
+}
+
+@inproceedings{schoenberger2016mvs,
+    author={Sch\"{o}nberger, Johannes Lutz and Zheng, Enliang and Pollefeys, Marc and Frahm, Jan-Michael},
+    title={Pixelwise View Selection for Unstructured Multi-View Stereo},
+    booktitle={European Conference on Computer Vision (ECCV)},
+    year={2016},
+}
+```
+
+If you use the global SfM pipeline (GLOMAP), also cite:
+
+```bibtex
+@inproceedings{pan2024glomap,
+    author={Pan, Linfei and Barath, Daniel and Pollefeys, Marc and Sch\"{o}nberger, Johannes Lutz},
+    title={{Global Structure-from-Motion Revisited}},
+    booktitle={European Conference on Computer Vision (ECCV)},
+    year={2024},
+}
+```
+
+## Support
+
+- [GitHub Discussions](https://github.com/colmap/colmap/discussions) — questions and community help
+- [GitHub Issues](https://github.com/colmap/colmap/issues) — bug reports and feature requests
+- Source code: [github.com/colmap/colmap](https://github.com/colmap/colmap)

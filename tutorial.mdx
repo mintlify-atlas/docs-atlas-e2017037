@@ -1,0 +1,404 @@
+---
+title: "Tutorial"
+description: "Step-by-step guide to 3D reconstruction with COLMAP, from feature extraction through dense mesh generation."
+---
+
+This tutorial covers image-based 3D reconstruction by demonstrating the individual processing steps in COLMAP. Image-based 3D reconstruction first recovers a sparse representation of the scene and the camera poses of the input images using Structure-from-Motion (SfM). This output then serves as input to Multi-View Stereo (MVS) to recover a dense representation of the scene.
+
+## Quickstart
+
+COLMAP provides an automatic reconstruction tool that takes a folder of input images and produces a sparse and dense reconstruction in a workspace folder.
+
+<Tabs>
+  <Tab title="GUI">
+    <Steps>
+      <Step title="Start the COLMAP GUI">
+        Launch COLMAP:
+        - **Windows:** Double-click `COLMAP.bat` or run it from a command shell.
+        - **Mac:** Open `COLMAP.app`.
+        - **From build folder:** Run `./src/colmap/exe/colmap gui`.
+      </Step>
+      <Step title="Run automatic reconstruction">
+        Click **Reconstruction > Automatic Reconstruction** and specify:
+        - **Workspace folder:** The output directory (e.g., `path/to/project`)
+        - **Image folder:** The folder containing your input images (e.g., `path/to/project/images`)
+
+        Click **Run**. The output is written to the workspace folder.
+      </Step>
+      <Step title="Review results">
+        After the reconstruction completes, the workspace folder will contain:
+
+        ```text
+        +── images
+        │   +── image1.jpg
+        │   +── image2.jpg
+        │   +── ...
+        +── sparse
+        │   +── 0
+        │   │   +── rigs.bin
+        │   │   +── cameras.bin
+        │   │   +── frames.bin
+        │   │   +── images.bin
+        │   │   +── points3D.bin
+        │   +── ...
+        +── dense
+        │   +── 0
+        │   │   +── images
+        │   │   +── sparse
+        │   │   +── stereo
+        │   │   +── fused.ply
+        │   │   +── meshed-poisson.ply
+        │   │   +── meshed-delaunay.ply
+        │   +── ...
+        +── database.db
+        ```
+
+        The `sparse/` folder contains the sparse models for all reconstructed components. The `dense/` folder contains their corresponding dense models.
+
+        Import the dense point cloud `fused.ply` into COLMAP via **File > Import model from...**. Dense meshes must be visualized with an external viewer such as Meshlab.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="CLI">
+    Run the automatic reconstructor from the command line:
+
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path path/to/project \
+        --image_path path/to/project/images
+    ```
+
+    To list all available COLMAP commands:
+
+    ```bash
+    colmap help
+    ```
+
+    You can provide options directly as command-line arguments or via a `.ini` project configuration file:
+
+    ```bash
+    colmap gui --project_path path/to/project.ini
+    ```
+  </Tab>
+</Tabs>
+
+## Image capture guidelines
+
+If you control the image capture process, follow these guidelines for optimal reconstruction results:
+
+- **Good texture:** Avoid completely texture-less scenes (e.g., white walls, empty desks). Add background objects such as posters if necessary.
+- **Consistent illumination:** Avoid high dynamic range scenes, pictures against the sun, or specularities on shiny surfaces.
+- **High visual overlap:** Each object should appear in at least 3 images — the more the better.
+- **Varied viewpoints:** Move the camera between shots rather than only rotating in place. If using video input, consider down-sampling the frame rate.
+
+## Step-by-step reconstruction
+
+The sections below walk through the manual reconstruction pipeline for full control over parameters.
+
+### Project setup
+
+COLMAP stores all extracted data in a single SQLite database file. All input images must be in one directory (with optional sub-directories). COLMAP recursively considers all images in that directory and ignores other files.
+
+<Steps>
+  <Step title="Create a new project">
+    Start the COLMAP GUI and choose **File > New project**. Select:
+    - The path for the **database file** (e.g., `path/to/project/database.db`)
+    - The **image folder** containing your input images (e.g., `path/to/project/images`)
+
+    An example project folder structure:
+
+    ```text
+    /path/to/project/...
+    +── images
+    │   +── image1.jpg
+    │   +── image2.jpg
+    │   +── ...
+    │   +── imageN.jpg
+    +── database.db
+    +── project.ini
+    ```
+  </Step>
+  <Step title="Save the project">
+    Save the entire project settings to a configuration file by choosing **File > Save project**. The `.ini` file stores the absolute paths to the database and image folder, plus all parameter settings.
+
+    To reopen an existing project, choose **File > Open project** and select the `.ini` file.
+  </Step>
+</Steps>
+
+### Structure-from-Motion pipeline
+
+SfM reconstructs 3D structure from a series of overlapping images. COLMAP divides this into three stages: feature detection and extraction, feature matching and geometric verification, and sparse reconstruction.
+
+#### Feature detection and extraction
+
+Choose **Processing > Extract features**. COLMAP imports images and performs feature detection in one step to avoid loading images from disk more than once.
+
+**Camera model selection:** You can automatically extract focal length from EXIF data or manually specify intrinsic parameters. If all images are captured with the same physical camera and zoom factor, enable **Share intrinsics** across all images.
+
+**Feature extractor options:**
+- **SIFT** (default): Extracted on the GPU or CPU. The GPU version produces higher quality features for high-contrast images. The CPU version is recommended for servers without a display.
+- **ALIKED**: A learned feature extractor using ONNX models. Select via `--FeatureExtraction.type`.
+
+To import existing features from text files, place a `.txt` file next to each image with the following format:
+
+```text
+NUM_FEATURES 128
+X Y SCALE ORIENTATION D_1 D_2 D_3 ... D_128
+...
+```
+
+For example, an image with 4 SIFT features:
+
+```text
+4 128
+1.2 2.3 0.1 0.3 1 2 3 4 ... 21
+2.2 3.3 1.1 0.3 3 2 3 2 ... 32
+0.2 1.3 1.1 0.3 3 2 3 2 ... 2
+1.2 2.3 1.1 0.3 3 2 3 2 ... 3
+```
+
+<Note>
+  By convention, the upper-left corner of an image has coordinate `(0, 0)` and the center of the upper-left pixel has coordinate `(0.5, 0.5)`.
+</Note>
+
+Click **Extract** and wait for the extraction to finish. If you cancel and restart, COLMAP automatically continues from where it left off.
+
+#### Feature matching and geometric verification
+
+Choose **Processing > Feature matching** and select a matching mode:
+
+<AccordionGroup>
+  <Accordion title="Exhaustive matching">
+    Every image is matched against every other image. Best reconstruction results. Suitable for datasets up to several hundred images.
+
+    Expected times: a few minutes for tens of images, a few hours for hundreds of images.
+  </Accordion>
+  <Accordion title="Sequential matching">
+    Consecutive frames are matched against each other. Useful for video sequences where images are captured in sequential order (file names must be ordered, e.g., `image0001.jpg`, `image0002.jpg`).
+
+    Includes built-in loop detection using a vocabulary tree: every N-th image (`loop_detection_period`) is matched against its visually most similar images (`loop_detection_num_images`). A default vocabulary tree is automatically downloaded and cached. More trees can be downloaded from [demuc.de/colmap](https://demuc.de/colmap/).
+  </Accordion>
+  <Accordion title="Vocabulary tree matching">
+    Every image is matched against its visual nearest neighbors using a vocabulary tree with spatial re-ranking. Recommended for large image collections (several thousands of images). Requires a pre-trained vocabulary tree downloadable from [demuc.de/colmap](https://demuc.de/colmap/).
+  </Accordion>
+  <Accordion title="Spatial matching">
+    Every image is matched against its spatial nearest neighbors. COLMAP extracts GPS information from EXIF by default. Recommended when accurate prior location information is available.
+  </Accordion>
+  <Accordion title="Transitive matching">
+    Uses transitive relations of existing feature matches to produce a more complete matching graph. If image A matches B and B matches C, this matcher attempts to match A to C directly.
+  </Accordion>
+  <Accordion title="Custom matching">
+    Specify individual image pairs for matching or import individual feature matches. Provide a text file with one image pair per line:
+
+    ```text
+    image1.jpg image2.jpg
+    image1.jpg image3.jpg
+    ...
+    ```
+
+    To import feature matches (raw or geometrically verified), use the following format:
+
+    ```text
+    image1.jpg image2.jpg
+    0 1
+    1 2
+    3 4
+
+    image1.jpg image3.jpg
+    0 1
+    1 2
+    3 4
+    4 5
+
+    ...
+    ```
+
+    Where pairs of numbers are zero-based feature indices in the respective images.
+  </Accordion>
+</AccordionGroup>
+
+Click **Match** and wait for the matching to finish. COLMAP only matches image pairs that have not been matched previously, so you can safely cancel and resume, or add new images and re-run matching.
+
+<Tip>
+  SIFT feature matching can use a GPU for acceleration. To run on CPU instead:
+
+  ```bash
+  colmap exhaustive_matcher --FeatureMatching.use_gpu 0
+  ```
+
+  If your system has multiple CUDA-enabled GPUs, select specific GPUs with the `gpu_index` option.
+</Tip>
+
+#### Sparse reconstruction
+
+After building the scene graph, start the incremental reconstruction by choosing **Reconstruction > Start**.
+
+COLMAP loads all extracted data from the database into memory, seeds the reconstruction from an initial image pair, then incrementally extends the scene by registering new images and triangulating new points. Results are visualized in real time.
+
+If not all images can be registered into the same model, COLMAP attempts to reconstruct multiple models. Select different models from the drop-down menu in the toolbar. If models share registered images, use the `model_merger` executable to merge them.
+
+**Troubleshooting failed registrations:**
+
+- Perform additional matching: use exhaustive matching, enable guided matching, increase nearest neighbors for vocabulary tree matching, or increase overlap in sequential matching.
+- Manually choose an initial image pair: go to **Reconstruction > Reconstruction options > Init** and set images from the database management tool that have sufficient matches from different viewpoints.
+
+### Exporting models
+
+COLMAP provides several export options for further processing:
+
+- **File > Export** — Export the currently viewed model in COLMAP's binary format.
+- **File > Export all** — Export all reconstructed models.
+- **File > Export as...** — Export in other formats: Bundler, VisualSfM, PLY, or VRML.
+
+Exported models can be re-imported for later visualization, image undistortion, or to continue an existing reconstruction after adding new images.
+
+## Dense reconstruction
+
+After obtaining a sparse reconstruction and camera poses from SfM, MVS recovers denser scene geometry by computing depth and normal maps for all registered images and fusing them into a dense point cloud.
+
+<Steps>
+  <Step title="Open the dense reconstruction dialog">
+    Import your sparse 3D model into COLMAP (or continue from the sparse reconstruction step), then choose **Reconstruction > Multi-view stereo** and select an empty or existing workspace folder for dense output.
+  </Step>
+  <Step title="Undistort images">
+    Click **Undistort**. This step corrects lens distortion in the input images to produce undistorted images used in all subsequent dense reconstruction steps.
+
+    From the CLI:
+
+    ```bash
+    colmap image_undistorter \
+        --image_path path/to/project/images \
+        --input_path path/to/project/sparse/0 \
+        --output_path path/to/project/dense/0 \
+        --output_type COLMAP
+    ```
+  </Step>
+  <Step title="Patch match stereo">
+    Click **Stereo**. COLMAP computes depth and normal maps for each image using patch-match stereo.
+
+    From the CLI:
+
+    ```bash
+    colmap patch_match_stereo \
+        --workspace_path path/to/project/dense/0 \
+        --workspace_format COLMAP \
+        --PatchMatchStereo.geom_consistency true
+    ```
+
+    <Warning>
+      During stereo reconstruction, the display may freeze due to heavy compute load. If your GPU does not have enough memory, the reconstruction process may crash. See the [FAQ](/faq) for how to configure memory limits and display timeouts.
+    </Warning>
+  </Step>
+  <Step title="Stereo fusion">
+    Click **Fuse**. This step fuses the depth and normal maps from multiple images into a single dense point cloud with normal information.
+
+    From the CLI:
+
+    ```bash
+    colmap stereo_fusion \
+        --workspace_path path/to/project/dense/0 \
+        --workspace_format COLMAP \
+        --input_type geometric \
+        --output_path path/to/project/dense/0/fused.ply
+    ```
+
+    <Note>
+      The reconstructed normals of the point cloud cannot be directly visualized in COLMAP. Use Meshlab and enable **Render > Show Normal/Curvature** to visualize them.
+    </Note>
+  </Step>
+  <Step title="Surface meshing (optional)">
+    Click **Mesh**. This step estimates a dense surface mesh from the fused point cloud using Poisson or Delaunay reconstruction.
+
+    <CodeGroup>
+
+    ```bash Poisson meshing
+    colmap poisson_mesher \
+        --input_path path/to/project/dense/0/fused.ply \
+        --output_path path/to/project/dense/0/meshed-poisson.ply
+    ```
+
+    ```bash Delaunay meshing
+    colmap delaunay_mesher \
+        --input_path path/to/project/dense/0 \
+        --output_path path/to/project/dense/0/meshed-delaunay.ply
+    ```
+
+    </CodeGroup>
+
+    To reduce the number of faces while preserving overall shape, simplify the mesh:
+
+    ```bash
+    colmap mesh_simplifier \
+        --input_path path/to/project/dense/0/meshed-poisson.ply \
+        --output_path path/to/project/dense/0/meshed-simplified.ply
+    ```
+
+    To produce a texture atlas and per-face UV coordinates:
+
+    ```bash
+    colmap mesh_texturer \
+        --input_path path/to/project/dense/0 \
+        --input_mesh_path path/to/project/dense/0/meshed-poisson.ply \
+        --output_path path/to/project/dense/0/meshed-textured.ply
+    ```
+
+    Dense surface meshes must be visualized with external software such as Meshlab.
+  </Step>
+</Steps>
+
+### External MVS libraries
+
+COLMAP also exports to several external dense reconstruction libraries. Choose **Extras > Undistort images** and select the appropriate format. The output folders contain the reconstruction, undistorted images, and sample shell scripts.
+
+To run PMVS2 after undistortion:
+
+```bash
+./path/to/pmvs2 /path/to/undistortion/folder/pmvs/ option-all
+```
+
+<Note>
+  Do not forget the trailing slash after `pmvs/` in the path argument.
+</Note>
+
+For large datasets, run CMVS first to cluster the scene into manageable parts, then run COLMAP or PMVS2. Refer to the sample shell scripts in the undistortion output folder.
+
+External libraries that support COLMAP's output format:
+
+- [CMVS/PMVS](http://www.di.ens.fr/pmvs/)
+- [CMP-MVS](http://ptak.felk.cvut.cz/sfmservice/websfm.pl)
+- [Line3D++](https://github.com/manhofer/Line3Dpp)
+
+## Database management
+
+Review and manage imported cameras, images, and feature matches via **Processing > Manage database**. In the dialog you can:
+
+- View the list of imported images and cameras.
+- Inspect features and matches for each image by clicking **Show image** and **Overlapping images**.
+- Modify individual database entries by double-clicking specific cells. Changes take effect after clicking **Save**.
+
+To share intrinsic camera parameters between groups of images, select one or more images, choose **Set camera**, and set the `camera_id` to match the desired entry in the cameras table.
+
+When setting the `prior_focal_length` flag:
+- Set to `1` if you have a prior lab calibration.
+- Without prior knowledge, set to `1.25 * max(width_in_px, height_in_px)`.
+
+<Tip>
+  For full control over the database, you can directly modify the SQLite database file. This allows you to use COLMAP only for feature extraction and matching, or to import your own features and matches to use only COLMAP's incremental reconstruction.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Command-line interface" icon="terminal" href="/cli">
+    Automate reconstruction workflows with 40+ CLI commands.
+  </Card>
+  <Card title="Graphical interface" icon="display" href="/gui">
+    Learn all controls and visualization options in the COLMAP GUI.
+  </Card>
+  <Card title="Feature extraction" icon="magnifying-glass" href="/features">
+    Configure SIFT, ALIKED, and custom feature extractors and matchers.
+  </Card>
+  <Card title="PyCOLMAP" icon="python" href="/pycolmap/index">
+    Use COLMAP's full capabilities from Python.
+  </Card>
+</CardGroup>

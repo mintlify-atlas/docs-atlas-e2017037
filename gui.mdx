@@ -1,0 +1,130 @@
+---
+title: "Graphical User Interface"
+description: "Launch and use the COLMAP GUI to run reconstruction workflows, visualize models, and export results."
+---
+
+The COLMAP GUI provides access to most available functionality and visualizes the reconstruction process in real-time. Registered images are shown in red and reconstructed points in their average color extracted from the images. The viewer also supports dense point clouds produced from Multi-View Stereo.
+
+## Launching the GUI
+
+<CodeGroup>
+
+```bash Linux / from build folder
+# If installed system-wide
+colmap gui
+
+# From the CMake build folder
+./src/colmap/exe/colmap gui
+```
+
+```bash Windows
+COLMAP.bat
+```
+
+```bash macOS
+open COLMAP.app
+# Or, if installed
+colmap gui
+```
+
+</CodeGroup>
+
+<Note>
+The GUI requires an attached display with at least OpenGL 3.2 support.
+</Note>
+
+## Main workflow
+
+<Steps>
+  <Step title="Set up a project">
+    Choose **File > New project** and set the workspace path and image directory. COLMAP stores all data (database, sparse model, dense output) relative to this workspace.
+  </Step>
+  <Step title="Extract features">
+    Choose **Processing > Extract features**. COLMAP reads each image, detects keypoints, and stores descriptors in the project database.
+  </Step>
+  <Step title="Match features">
+    Choose **Processing > Match features**. Select a matching strategy (exhaustive, sequential, vocabulary tree, spatial, or transitive) based on your dataset type.
+  </Step>
+  <Step title="Run sparse reconstruction">
+    Choose **Reconstruction > Start reconstruction**. COLMAP runs incremental SfM, registering images and triangulating points. Progress is shown in real-time in the viewer.
+  </Step>
+  <Step title="Undistort images (dense prep)">
+    Choose **Reconstruction > Dense reconstruction**, then **Undistortion**. This prepares the workspace for Multi-View Stereo.
+  </Step>
+  <Step title="Run dense reconstruction">
+    In the dense reconstruction dialog, run **Stereo** (patch-match stereo) and then **Fusion** to produce a fused point cloud (`fused.ply`).
+  </Step>
+  <Step title="Run meshing (optional)">
+    Run **Meshing** in the dense reconstruction dialog to produce a surface mesh from the fused point cloud.
+  </Step>
+</Steps>
+
+## Model viewer controls
+
+| Action | Control |
+|---|---|
+| Rotate model | Left-click and drag |
+| Shift model | Right-click or `Ctrl`+click (`Cmd`+click) and drag |
+| Zoom model | Scroll |
+| Change point size | `Ctrl`+scroll (`Cmd`+scroll) |
+| Change camera size | `Alt`+scroll |
+| Adjust clipping plane | `Shift`+scroll |
+| Select point | Double-left-click a point |
+| Select camera | Double-left-click a camera |
+| Reset view | **Render > Reset view** |
+
+When you select a point, green lines show its projections into all images that observe it, and a window opens with the projected locations in each image.
+
+When you select a camera, purple lines connect it to images that share at least one common 3D point. A statistics window opens for that image.
+
+## Render options
+
+Choose **Render > Render options** to adjust projection type, colormaps, point rendering, and camera visualization settings.
+
+## Import and export
+
+### Importing a sparse model
+
+Choose **File > Import model** and select the folder containing the sparse model files (`cameras.txt`, `images.txt`, `points3D.txt`, etc.) produced by the `mapper` command.
+
+### Importing a dense point cloud
+
+Choose **File > Import model from...** and select `fused.ply` produced by the `stereo_fusion` command.
+
+<Note>
+Dense mesh files (`meshed-*.ply`) produced by `poisson_mesher` or `delaunay_mesher` cannot be visualized in COLMAP. Use an external viewer such as Meshlab instead.
+</Note>
+
+## Screenshots and screencasts
+
+### Taking a screenshot
+
+Choose **Extras > Grab image** to save a screenshot of the current viewpoint (without coordinate axes) in the format of your choice.
+
+### Recording a screencast
+
+Choose **Extras > Grab movie** to capture a video of the reconstructed model:
+
+<Steps>
+  <Step title="Add control viewpoints">
+    Navigate to each desired viewpoint and click **Add** to set a keyframe. COLMAP records the camera position and the point and camera sizes at that moment.
+  </Step>
+  <Step title="Adjust timing (optional)">
+    Double-click a cell in the viewpoint table to change the number of frames between two viewpoints or reorder them.
+  </Step>
+  <Step title="Preview the trajectory">
+    The planned trajectory renders in light blue in the viewer. COLMAP smoothly interpolates between keyframes.
+  </Step>
+  <Step title="Assemble the movie">
+    Click **Assemble movie**. The output directory contains individual PNG frames.
+  </Step>
+  <Step title="Encode to video with FFmpeg">
+    ```bash
+    ffmpeg -i frame%06d.png -r 30 -vf scale=1680:1050 movie.mp4
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Video capture requires the perspective projection model to be set in **Render > Render options**.
+</Warning>

@@ -1,0 +1,115 @@
+---
+title: "Camera Models"
+description: "Overview of all supported camera models in COLMAP, their parameters, and guidance on when to use each."
+---
+
+COLMAP implements different camera models of varying complexity. If no intrinsic parameters are known a priori, use the simplest camera model that is complex enough to model the distortion effects in your images.
+
+<Tip>
+  You can inspect estimated intrinsic parameters by double-clicking specific images in the model viewer or by exporting the model and opening the `cameras.txt` file.
+</Tip>
+
+## Choosing a camera model
+
+<AccordionGroup>
+  <Accordion title="Images are already undistorted">
+    Use `SIMPLE_PINHOLE` or `PINHOLE`. These use one and two focal length parameters, respectively.
+
+    Note that even with undistorted images, COLMAP could improve the intrinsics with a more complex camera model.
+  </Accordion>
+  <Accordion title="Unknown intrinsics, each image has a different calibration">
+    Use `SIMPLE_RADIAL` or `RADIAL`. This is the recommended choice for Internet photos where every image may come from a different camera. Both models are simplified versions of the `OPENCV` model, modeling only radial distortion with one and two parameters, respectively.
+  </Accordion>
+  <Accordion title="Known calibration parameters">
+    Use `OPENCV` or `FULL_OPENCV`. You can also let COLMAP estimate the parameters if you share intrinsics across multiple images.
+
+    <Warning>
+      Automatic estimation of `OPENCV` or `FULL_OPENCV` parameters will most likely fail if every image has a separate set of intrinsic parameters.
+    </Warning>
+  </Accordion>
+  <Accordion title="Fisheye lenses">
+    Use `SIMPLE_RADIAL_FISHEYE`, `RADIAL_FISHEYE`, `OPENCV_FISHEYE`, `FOV`, `THIN_PRISM_FISHEYE`, or `RAD_TAN_THIN_PRISM_FISHEYE`. All non-fisheye models are not capable of modeling the distortion effects of fisheye lenses.
+
+    The `FOV` model is used by Google Project Tango — make sure not to initialize `omega` to zero.
+  </Accordion>
+  <Accordion title="Fisheye lenses with equidistant projection">
+    Use `SIMPLE_FISHEYE` or `FISHEYE` for fisheye lenses with equidistant projection where distortion can be ignored or has been pre-corrected. These models use the equidistant projection (θ = atan(r)) without any distortion parameters.
+  </Accordion>
+  <Accordion title="Simple radial distortion with known parameters">
+    Use `SIMPLE_DIVISION` or `DIVISION`. Similar to `SIMPLE_RADIAL` and `RADIAL`, these model simple radial distortion effects. The two models have first-order local equivalence for small distortions.
+  </Accordion>
+</AccordionGroup>
+
+## All camera models
+
+### Pinhole models
+
+For undistorted images or as a starting point when intrinsics are unknown.
+
+| Model | Parameters | Description |
+|---|---|---|
+| `SIMPLE_PINHOLE` | `f, cx, cy` | Single focal length, no distortion |
+| `PINHOLE` | `fx, fy, cx, cy` | Separate horizontal and vertical focal lengths, no distortion |
+
+### Radial models
+
+For standard cameras with unknown intrinsics, especially Internet photo collections.
+
+| Model | Parameters | Description |
+|---|---|---|
+| `SIMPLE_RADIAL` | `f, cx, cy, k` | Single focal length, one radial distortion parameter |
+| `RADIAL` | `f, cx, cy, k1, k2` | Single focal length, two radial distortion parameters |
+
+### OpenCV models
+
+For cameras with known calibration parameters (e.g., calibrated with OpenCV).
+
+| Model | Parameters | Description |
+|---|---|---|
+| `OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2` | Full radial and tangential distortion |
+| `FULL_OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, k5, k6` | Extended OpenCV model with up to 6 radial and 2 tangential distortion parameters |
+
+### Fisheye models
+
+For wide-angle and fisheye lenses. Use these exclusively for fisheye optics — standard models cannot model fisheye distortion.
+
+| Model | Parameters | Description |
+|---|---|---|
+| `OPENCV_FISHEYE` | `fx, fy, cx, cy, k1, k2, k3, k4` | OpenCV fisheye model |
+| `FOV` | `fx, fy, cx, cy, omega` | Field of view model (used by Google Project Tango) |
+| `SIMPLE_RADIAL_FISHEYE` | `f, cx, cy, k` | Simplified fisheye with one radial parameter |
+| `RADIAL_FISHEYE` | `f, cx, cy, k1, k2` | Fisheye with two radial parameters |
+| `THIN_PRISM_FISHEYE` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, sx1, sy1` | Fisheye with thin prism distortion |
+| `RAD_TAN_THIN_PRISM_FISHEYE` | `fx, fy, cx, cy, k1, k2, k3, k4, k5, k6, p1, p2, sx1, sy1` | Extended fisheye with radial, tangential, and thin prism distortion |
+
+### Equidistant fisheye models
+
+For fisheye lenses using the equidistant projection (θ = atan(r)), where distortion can be ignored or has been pre-corrected.
+
+| Model | Parameters | Description |
+|---|---|---|
+| `SIMPLE_FISHEYE` | `f, cx, cy` | Single focal length, equidistant projection, no distortion |
+| `FISHEYE` | `fx, fy, cx, cy` | Separate focal lengths, equidistant projection, no distortion |
+
+### Division models
+
+For cameras with simple radial distortion where calibration parameters are known.
+
+| Model | Parameters | Description |
+|---|---|---|
+| `SIMPLE_DIVISION` | `f, cx, cy, k` | Single focal length, one division distortion parameter |
+| `DIVISION` | `f, cx, cy, k1, k2` | Single focal length, two division distortion parameters |
+
+## Troubleshooting model selection
+
+| Symptom | Likely cause | Solution |
+|---|---|---|
+| Reconstruction fails, focal length or distortion values are grossly wrong | Camera model too complex | Switch to a simpler model |
+| COLMAP performs many iterative local and global bundle adjustments | Camera model too simple | Switch to a more complex model |
+
+## Advanced options
+
+- **Share intrinsics** across multiple images to obtain more reliable parameter estimates. See [FAQ: Share intrinsic camera parameters](/faq).
+- **Fix intrinsics** during reconstruction if you have a reliable calibration. See [FAQ: Fix intrinsic camera parameters](/faq).
+
+For the full parameter definitions of each model, refer to the [camera models header file](https://github.com/colmap/colmap/blob/main/src/colmap/sensor/models.h).

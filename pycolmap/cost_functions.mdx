@@ -1,0 +1,382 @@
+---
+title: "Cost functions"
+description: "Ceres cost functions for custom bundle adjustment in pycolmap.cost_functions, usable with PyCeres."
+---
+
+The `pycolmap.cost_functions` submodule provides Ceres cost function factories for building custom bundle adjustment problems with [PyCeres](https://github.com/cvg/pyceres).
+
+<Note>
+  Cost functions require that both `pycolmap` and `pyceres` are installed — either both from PyPI or both built from source using the same Ceres installation.
+
+  ```bash
+  pip install pycolmap pyceres
+  ```
+</Note>
+
+## Usage pattern
+
+Each factory function returns a `ceres::CostFunction` object that you add to a `pyceres.Problem`. PyCeres then owns the cost function's memory.
+
+```python
+import pyceres
+import pycolmap
+from pycolmap.cost_functions import ReprojErrorCost
+import numpy as np
+
+camera = pycolmap.Camera()   # fill in your camera
+point2D = np.array([320.0, 240.0])
+
+problem = pyceres.Problem()
+
+cost_fn = ReprojErrorCost(camera.model, point2D)
+problem.add_residual_block(
+    cost_fn,
+    None,                       # loss function (None = squared loss)
+    [cam_from_world_params,     # [qx, qy, qz, qw, tx, ty, tz]
+     camera_params,
+     point3D_xyz],
+)
+```
+
+<Tip>
+  All 2D point coordinates are in normalised camera coordinates (after calling `camera.cam_from_img()`), not in pixel units — unless you are using the image-space overloads.
+</Tip>
+
+---
+
+## `ReprojErrorCost`
+
+Reprojection error between an observed 2D point and the projection of a 3D point.
+
+```python
+from pycolmap.cost_functions import ReprojErrorCost
+```
+
+Overloaded factory function:
+
+```python
+# 1. Standard: optimise pose, camera params, and 3D point
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D: np.ndarray,          # [2,1]
+) -> ceres.CostFunction
+
+# 2. With 2D detection noise covariance
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D_cov: np.ndarray,      # [2,2]
+    point2D: np.ndarray,          # [2,1]
+) -> ceres.CostFunction
+
+# 3. Constant camera pose
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D: np.ndarray,          # [2,1]
+    cam_from_world: Rigid3d,
+) -> ceres.CostFunction
+
+# 4. Constant camera pose + 2D detection noise
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D_cov: np.ndarray,      # [2,2]
+    point2D: np.ndarray,          # [2,1]
+    cam_from_world: Rigid3d,
+) -> ceres.CostFunction
+
+# 5. Constant 3D point
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D: np.ndarray,          # [2,1]
+    point3D: np.ndarray,          # [3,1]
+) -> ceres.CostFunction
+
+# 6. Constant 3D point + 2D detection noise
+ReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D_cov: np.ndarray,      # [2,2]
+    point2D: np.ndarray,          # [2,1]
+    point3D: np.ndarray,          # [3,1]
+) -> ceres.CostFunction
+```
+
+**Example — standard reprojection cost**
+
+```python
+import pyceres
+import pycolmap
+from pycolmap.cost_functions import ReprojErrorCost
+import numpy as np
+
+camera = pycolmap.Camera()
+camera.model = pycolmap.CameraModelId.SIMPLE_RADIAL
+camera.width = 1920
+camera.height = 1080
+camera.params = np.array([1200.0, 960.0, 540.0, 0.05])
+
+# Normalised 2D observation
+point2D = camera.cam_from_img(np.array([500.0, 400.0]))
+
+problem = pyceres.Problem()
+cost_fn = ReprojErrorCost(camera.model, point2D)
+
+# Parameters: pose qxyzw+t (7), camera params (4), 3D point xyz (3)
+problem.add_residual_block(
+    cost_fn,
+    pyceres.HuberLoss(1.0),
+    [pose_params, camera.params, point3D_xyz],
+)
+```
+
+---
+
+## `RigReprojErrorCost`
+
+Reprojection error for a camera rig, where the rig-from-world pose and the camera-from-rig extrinsics are separate parameters.
+
+```python
+from pycolmap.cost_functions import RigReprojErrorCost
+```
+
+```python
+# 1. Optimise rig pose, cam-from-rig, camera params, and 3D point
+RigReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D: np.ndarray,          # [2,1]
+) -> ceres.CostFunction
+
+# 2. With 2D detection noise covariance
+RigReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D_cov: np.ndarray,      # [2,2]
+    point2D: np.ndarray,          # [2,1]
+) -> ceres.CostFunction
+
+# 3. Constant cam-from-rig pose
+RigReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D: np.ndarray,          # [2,1]
+    cam_from_rig: Rigid3d,
+) -> ceres.CostFunction
+
+# 4. Constant cam-from-rig + 2D detection noise
+RigReprojErrorCost(
+    camera_model_id: CameraModelId,
+    point2D_cov: np.ndarray,      # [2,2]
+    point2D: np.ndarray,          # [2,1]
+    cam_from_rig: Rigid3d,
+) -> ceres.CostFunction
+```
+
+---
+
+## `SampsonErrorCost`
+
+Sampson error for two-view geometry, operating on normalised camera rays.
+
+```python
+from pycolmap.cost_functions import SampsonErrorCost
+
+SampsonErrorCost(
+    cam_ray1: np.ndarray,   # [3,1] — normalised ray in camera 1
+    cam_ray2: np.ndarray,   # [3,1] — normalised ray in camera 2
+) -> ceres.CostFunction
+```
+
+**Example**
+
+```python
+import pyceres
+from pycolmap.cost_functions import SampsonErrorCost
+import numpy as np
+
+# Two normalised camera rays
+ray1 = np.array([0.1, 0.2, 1.0])
+ray2 = np.array([0.15, 0.18, 1.0])
+
+cost_fn = SampsonErrorCost(ray1, ray2)
+
+problem = pyceres.Problem()
+problem.add_residual_block(
+    cost_fn,
+    None,
+    [fundamental_matrix_params],  # [9,]
+)
+```
+
+---
+
+## `AbsolutePosePriorCost`
+
+6-DoF error between an optimised camera pose and a prior absolute pose.
+
+```python
+from pycolmap.cost_functions import AbsolutePosePriorCost
+
+# Without covariance (identity information matrix)
+AbsolutePosePriorCost(
+    cam_from_world_prior: Rigid3d,
+) -> ceres.CostFunction
+
+# With prior covariance (6×6, ordering: rotation then translation)
+AbsolutePosePriorCost(
+    cam_cov_from_world_prior: np.ndarray,   # [6,6]
+    cam_from_world_prior: Rigid3d,
+) -> ceres.CostFunction
+```
+
+**Example**
+
+```python
+import pyceres
+import pycolmap
+from pycolmap.cost_functions import AbsolutePosePriorCost
+import numpy as np
+
+# GPS-derived prior pose with associated covariance
+prior_pose = pycolmap.Rigid3d()
+prior_cov = np.diag([1e-4, 1e-4, 1e-4, 0.01, 0.01, 0.01])  # [6,6]
+
+cost_fn = AbsolutePosePriorCost(prior_cov, prior_pose)
+
+problem = pyceres.Problem()
+problem.add_residual_block(
+    cost_fn,
+    None,
+    [cam_from_world_params],  # [7,] qxyzw + t
+)
+```
+
+---
+
+## `AbsolutePosePositionPriorCost`
+
+3-DoF error on the translational part of the camera pose only.
+
+```python
+from pycolmap.cost_functions import AbsolutePosePositionPriorCost
+
+# Without covariance
+AbsolutePosePositionPriorCost(
+    position_in_world_prior: np.ndarray,   # [3,1]
+) -> ceres.CostFunction
+
+# With prior covariance
+AbsolutePosePositionPriorCost(
+    position_cov_in_world_prior: np.ndarray,   # [3,3]
+    position_in_world_prior: np.ndarray,       # [3,1]
+) -> ceres.CostFunction
+```
+
+Useful when you have a GPS position prior but no orientation prior.
+
+---
+
+## `RelativePosePriorCost`
+
+6-DoF error between two absolute camera poses based on a measured relative pose between them (e.g. from IMU preintegration or a depth sensor).
+
+```python
+from pycolmap.cost_functions import RelativePosePriorCost
+
+# Without covariance
+RelativePosePriorCost(
+    i_from_j_prior: Rigid3d,
+) -> ceres.CostFunction
+
+# With prior covariance
+RelativePosePriorCost(
+    i_cov_from_j_prior: np.ndarray,   # [6,6]
+    i_from_j_prior: Rigid3d,
+) -> ceres.CostFunction
+```
+
+**Example**
+
+```python
+import pyceres
+import pycolmap
+from pycolmap.cost_functions import RelativePosePriorCost
+import numpy as np
+
+relative_pose = pycolmap.Rigid3d()  # measured i_from_j
+
+cost_fn = RelativePosePriorCost(relative_pose)
+
+problem = pyceres.Problem()
+problem.add_residual_block(
+    cost_fn,
+    None,
+    [cam_from_world_i_params,  # [7,]
+     cam_from_world_j_params], # [7,]
+)
+```
+
+---
+
+## `Point3DAlignmentCost`
+
+Error between 3D points transformed by a 3D similarity transform. Used to align two reconstructions via corresponding 3D point pairs.
+
+```python
+from pycolmap.cost_functions import Point3DAlignmentCost
+
+# Without covariance
+Point3DAlignmentCost(
+    point_in_b_prior: np.ndarray,   # [3,1] — target point in frame B
+    use_log_scale: bool = True,
+) -> ceres.CostFunction
+
+# With prior covariance
+Point3DAlignmentCost(
+    point_cov_in_b_prior: np.ndarray,   # [3,3]
+    point_in_b_prior: np.ndarray,       # [3,1]
+    use_log_scale: bool = True,
+) -> ceres.CostFunction
+```
+
+<Note>
+  Setting `use_log_scale=True` (the default) parameterises the scale of the `Sim3d` transform in log space, which leads to better-conditioned optimisation.
+</Note>
+
+**Example — reconstruction alignment**
+
+```python
+import pyceres
+import pycolmap
+from pycolmap.cost_functions import Point3DAlignmentCost
+import numpy as np
+
+# Corresponding 3D point pairs from two reconstructions
+points_a = [np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0])]
+points_b = [np.array([1.1, 2.1, 3.0]), np.array([4.1, 5.0, 6.1])]
+
+sim3_params = np.zeros(7)  # [log_scale, qx, qy, qz, tx, ty, tz]
+sim3_params[3] = 1.0       # qw = 1 (identity rotation)
+
+problem = pyceres.Problem()
+for pt_a, pt_b in zip(points_a, points_b):
+    cost_fn = Point3DAlignmentCost(pt_b)
+    problem.add_residual_block(
+        cost_fn,
+        pyceres.HuberLoss(0.5),
+        [sim3_params,    # [7,]
+         pt_a],          # [3,]
+    )
+```
+
+---
+
+## Reference table
+
+| Cost function | Residual DoF | Optimised parameters |
+|---|---|---|
+| `ReprojErrorCost` (standard) | 2 | pose (7), camera params, 3D point (3) |
+| `ReprojErrorCost` (const pose) | 2 | camera params, 3D point (3) |
+| `ReprojErrorCost` (const point) | 2 | pose (7), camera params |
+| `RigReprojErrorCost` (standard) | 2 | rig pose (7), cam-from-rig (7), camera params, 3D point (3) |
+| `RigReprojErrorCost` (const cam-from-rig) | 2 | rig pose (7), camera params, 3D point (3) |
+| `SampsonErrorCost` | 1 | fundamental matrix (9) |
+| `AbsolutePosePriorCost` | 6 | camera pose (7) |
+| `AbsolutePosePositionPriorCost` | 3 | camera pose (7) |
+| `RelativePosePriorCost` | 6 | camera pose i (7), camera pose j (7) |
+| `Point3DAlignmentCost` | 3 | Sim3d params (7), 3D point (3) |

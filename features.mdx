@@ -1,0 +1,120 @@
+---
+title: "Feature Extraction and Matching"
+description: "Configure SIFT and ALIKED feature extractors with brute-force and LightGlue matcher options via CLI or GUI."
+---
+
+COLMAP supports multiple feature extraction and matching algorithms. This page describes how to switch between them using the command-line interface or the graphical user interface.
+
+## Feature extractor types
+
+<CardGroup cols={2}>
+  <Card title="SIFT" icon="star">
+    Scale-Invariant Feature Transform (default). The classic and most widely tested feature extractor. Produces 128-dimensional uint8 descriptors.
+  </Card>
+  <Card title="ALIKED" icon="microchip">
+    A Lighter Keypoint and Descriptor Extractor. A learned feature extractor that produces floating-point descriptors. Requires ONNX support (`-DONNX_ENABLED=ON`).
+  </Card>
+</CardGroup>
+
+### CLI examples
+
+<Tabs>
+  <Tab title="SIFT">
+    ```bash
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --FeatureExtraction.type SIFT \
+        --SiftExtraction.max_num_features 8192
+    ```
+  </Tab>
+  <Tab title="ALIKED">
+    ```bash
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --FeatureExtraction.type ALIKED_N16ROT \
+        --AlikedExtraction.max_num_features 2048
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  SIFT is the default extractor. You can omit `--FeatureExtraction.type` when using SIFT.
+</Tip>
+
+In the GUI, open **Processing > Feature extraction** and select the desired tab (SIFT, ALIKED, etc.) before clicking Extract.
+
+## Feature matcher types
+
+| Type | Description | Requires ONNX |
+|---|---|---|
+| `SIFT_BRUTEFORCE` | Brute-force matching for SIFT descriptors (default). Uses L2 distance with ratio test. | No |
+| `ALIKED_BRUTEFORCE` | Brute-force matching for ALIKED descriptors. Uses cosine similarity. | Yes |
+| `SIFT_LIGHTGLUE` | Neural network-based matching using LightGlue for SIFT descriptors. Produces more matches and higher inlier ratios, especially for challenging image pairs with large viewpoint or illumination changes. | Yes |
+| `ALIKED_LIGHTGLUE` | Neural network-based matching using LightGlue for ALIKED descriptors. | Yes |
+
+### CLI examples
+
+<Tabs>
+  <Tab title="SIFT_BRUTEFORCE">
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db \
+        --FeatureMatching.type SIFT_BRUTEFORCE \
+        --SiftMatching.max_ratio 0.8
+    ```
+  </Tab>
+  <Tab title="ALIKED_BRUTEFORCE">
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db \
+        --FeatureMatching.type ALIKED_BRUTEFORCE \
+        --AlikedMatching.min_cossim 0.85
+    ```
+  </Tab>
+  <Tab title="SIFT_LIGHTGLUE">
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db \
+        --FeatureMatching.type SIFT_LIGHTGLUE
+    ```
+  </Tab>
+  <Tab title="ALIKED_LIGHTGLUE">
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $DATASET_PATH/database.db \
+        --FeatureMatching.type ALIKED_LIGHTGLUE
+    ```
+  </Tab>
+</Tabs>
+
+In the GUI, open **Processing > Feature matching**, select any matching tab (Exhaustive, Sequential, etc.), and choose the matcher type from the **Type** dropdown in the shared options section.
+
+## Compatible extractor and matcher types
+
+<Warning>
+  Mixing incompatible extractor and matcher types results in a runtime error. Do not mix different feature extractor types (e.g., SIFT and ALIKED) in the same database.
+</Warning>
+
+Use these compatible combinations:
+
+| Extractor | Compatible matchers |
+|---|---|
+| `SIFT` | `SIFT_BRUTEFORCE`, `SIFT_LIGHTGLUE` |
+| `ALIKED_*` | `ALIKED_BRUTEFORCE`, `ALIKED_LIGHTGLUE` |
+
+## ALIKED model variants
+
+ALIKED requires an ONNX model file. Two variants are available:
+
+| Model | Speed | Viewpoint invariance | Descriptor dimensions |
+|---|---|---|---|
+| `aliked-n16rot` | Faster | Yes (trained for it) | 128-dim |
+| `aliked-n32` | Slower | No | 128-dim |
+
+Specify the model path using `--AlikedExtraction.*_model_path`. If the path is a URL, COLMAP automatically downloads and caches the model.
+
+<Tip>
+  Download ALIKED models from the [COLMAP releases page](https://github.com/colmap/colmap/releases/).
+</Tip>

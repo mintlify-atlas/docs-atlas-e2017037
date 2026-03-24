@@ -1,0 +1,231 @@
+---
+title: "Output format"
+description: "COLMAP exports sparse and dense reconstruction results in binary and text formats, including cameras, images, 3D points, depth maps, and PLY point clouds."
+---
+
+COLMAP can export reconstruction results in several formats. Sparse models are written to multiple files that together describe the reconstruction. Dense reconstruction produces depth maps, normal maps, fused point clouds, and optionally a textured mesh.
+
+<Note>
+All binary data uses little-endian byte ordering. Most x86 processors are little-endian, so no special handling is required on common platforms. The data can be parsed most conveniently using the C++ API (`src/colmap/scene/reconstruction_io.h`) or the Python API provided by pycolmap.
+</Note>
+
+## Indices and identifiers
+
+COLMAP uses a consistent naming convention:
+
+- Variables ending in `*_idx` are **ordered, contiguous, zero-based indices**.
+- Variables ending in `*_id` are **unordered, non-contiguous identifiers**.
+
+For example, `CAMERA_ID`, `IMAGE_ID`, and `POINT3D_ID` are unordered identifiers. The maximum `POINT3D_ID` does not necessarily equal the number of 3D points, since some IDs are removed during filtering.
+
+## Sparse reconstruction
+
+By default, COLMAP uses a binary file format (machine-readable, fast). COLMAP also supports a text format (human-readable). Both formats split the model across multiple files:
+
+| File | Binary | Text |
+|---|---|---|
+| Rig configuration | `rigs.bin` | `rigs.txt` |
+| Camera intrinsics | `cameras.bin` | `cameras.txt` |
+| Frame poses | `frames.bin` | `frames.txt` |
+| Image poses and keypoints | `images.bin` | `images.txt` |
+| 3D points | `points3D.bin` | `points3D.txt` |
+
+Any directory containing these files constitutes a sparse model. When a directory contains both binary and text files, COLMAP prefers the binary format.
+
+<Note>
+Older versions of COLMAP had no rig support, so `rigs` and `frames` files may be absent in legacy models. COLMAP's I/O routines are fully backwards compatible — models without these files are read correctly and trivial rigs and frames are initialized automatically.
+</Note>
+
+### Exporting and importing models
+
+<Steps>
+  <Step title="Export from GUI">
+    - To export the currently selected model: **File > Export model**
+    - To export all reconstructed models: **File > Export all**
+
+    The selected folder receives the model files plus the current project configuration for re-importing into COLMAP.
+  </Step>
+  <Step title="Import into GUI">
+    Choose **File > Import model** and select the folder containing the `rigs`, `cameras`, `frames`, `images`, and `points3D` files.
+  </Step>
+  <Step title="Convert between binary and text">
+    Load the model with **File > Import model**, then export it in the desired format:
+    - Binary: **File > Export model**
+    - Text: **File > Export model as text**
+  </Step>
+</Steps>
+
+### Converting formats from the CLI
+
+Use the `model_converter` executable to convert between formats:
+
+```bash
+colmap model_converter \
+    --input_path /path/to/model \
+    --output_path /path/to/output \
+    --output_type TXT
+```
+
+Supported `--output_type` values: `BIN`, `TXT`, `NVM`, `Bundler`, `VRML`, `PLY`, `R3D`, `CAM`.
+
+You can also export to other formats from the GUI via **File > Export as...**
+
+### Text format details
+
+#### rigs.txt
+
+One line per rig. Each line lists the rig ID, number of sensors, the reference sensor type and ID, followed by all sensors with their type, ID, whether they have a relative pose, and optionally the pose as a quaternion and translation:
+
+```text
+# Rig calib list with one line of data per calib:
+#   RIG_ID, NUM_SENSORS, REF_SENSOR_TYPE, REF_SENSOR_ID, SENSORS[] as
+#   (SENSOR_TYPE, SENSOR_ID, HAS_POSE, [QW, QX, QY, QZ, TX, TY, TZ])
+# Number of rigs: 1
+1 2 CAMERA 1 CAMERA 2 1 -0.9999701516465348 -0.0011120266840749639 -0.0075347911527510894 0.0012985125893421306 -0.19316906391350164 0.00085222218993398979 0.0070758955539026785
+2 1 CAMERA 3
+```
+
+#### cameras.txt
+
+One line per camera. The length of `PARAMS[]` depends on the camera model:
+
+```text
+# Camera list with one line of data per camera:
+#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]
+# Number of cameras: 3
+1 SIMPLE_PINHOLE 3072 2304 2559.81 1536 1152
+2 PINHOLE 3072 2304 2560.56 2560.56 1536 1152
+3 SIMPLE_RADIAL 3072 2304 2559.69 1536 1152 -0.0218531
+```
+
+Intrinsic parameters can be shared across multiple images via `CAMERA_ID`.
+
+#### frames.txt
+
+One line per frame. Each frame is an instance of a rig, with a world-to-rig pose and a list of the data IDs captured by each sensor:
+
+```text
+# Frame list with one line of data per frame:
+#   FRAME_ID, RIG_ID, RIG_FROM_WORLD[QW, QX, QY, QZ, TX, TY, TZ],
+#   NUM_DATA_IDS, DATA_IDS[] as (SENSOR_TYPE, SENSOR_ID, DATA_ID)
+# Number of frames: 151
+1 1 0.99801363919752195 0.040985139360073107 0.041890917712361225 -0.023111584553400576 -5.2666546897987896 -0.17120007823690631 0.12300519697527648 2 CAMERA 1 1 CAMERA 2 2
+2 2 0.99816472047267968 0.037605501383281774 0.043101511724657163 -0.019881568259519072 -5.1956060695789192 -0.20794508616745555 0.14967533910764824 1 CAMERA 3 3
+```
+
+#### images.txt
+
+Two lines per image. The first line contains the pose and camera reference; the second line lists the keypoints observed in the image:
+
+```text
+# Image list with two lines of data per image:
+#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME
+#   POINTS2D[] as (X, Y, POINT3D_ID)
+# Number of images: 2, mean observations per image: 2
+1 0.851773 0.0165051 0.503764 -0.142941 -0.737434 1.02973 3.74354 1 P1180141.JPG
+2362.39 248.498 58396 1784.7 268.254 59027 1784.7 268.254 -1
+2 0.851773 0.0165051 0.503764 -0.142941 -0.737434 1.02973 3.74354 1 P1180142.JPG
+1190.83 663.957 23056 1258.77 640.354 59070
+```
+
+The pose `(QW, QX, QY, QZ, TX, TY, TZ)` is the projection from world to camera coordinates using a quaternion (Hamilton convention) and translation vector. The camera center in world coordinates is `-R^t * T`.
+
+The local camera coordinate system has:
+- X axis pointing right
+- Y axis pointing down
+- Z axis pointing forward (into the scene)
+
+A `POINT3D_ID` of `-1` means the keypoint does not correspond to a reconstructed 3D point.
+
+#### points3D.txt
+
+One line per 3D point. The track lists all image observations as `(IMAGE_ID, POINT2D_IDX)` pairs, where `POINT2D_IDX` is a zero-based index into the keypoints of that image:
+
+```text
+# 3D point list with one line of data per point:
+#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)
+# Number of points: 3, mean track length: 3.3334
+63390 1.67241 0.292931 0.609726 115 121 122 1.33927 16 6542 15 7345 6 6714 14 7227
+63376 2.01848 0.108877 -0.0260841 102 209 250 1.73449 16 6519 15 7322 14 7212 8 3991
+63371 1.71102 0.28566 0.53475 245 251 249 0.612829 118 4140 117 4473
+```
+
+The `ERROR` field is the reprojection error in pixels, updated after global bundle adjustment.
+
+## Dense reconstruction
+
+The dense reconstruction workspace uses the following directory structure:
+
+```text
++── images
+│   +── image1.jpg
+│   +── image2.jpg
+│   +── ...
++── sparse
+│   +── cameras.txt
+│   +── images.txt
+│   +── points3D.txt
++── stereo
+│   +── consistency_graphs
+│   │   +── image1.jpg.photometric.bin
+│   │   +── image2.jpg.photometric.bin
+│   │   +── ...
+│   +── depth_maps
+│   │   +── image1.jpg.photometric.bin
+│   │   +── image2.jpg.photometric.bin
+│   │   +── ...
+│   +── normal_maps
+│   │   +── image1.jpg.photometric.bin
+│   │   +── image2.jpg.photometric.bin
+│   │   +── ...
+│   +── patch-match.cfg
+│   +── fusion.cfg
++── fused.ply
++── meshed-poisson.ply
++── meshed-delaunay.ply
++── textured
+│   +── mesh.ply
+│   +── texture.png
++── run-colmap-geometric.sh
++── run-colmap-photometric.sh
+```
+
+| Path | Description |
+|---|---|
+| `images/` | Undistorted images |
+| `sparse/` | Sparse reconstruction with undistorted cameras |
+| `stereo/` | Stereo reconstruction outputs (depth maps, normal maps, consistency graphs) |
+| `fused.ply` | Fused dense point cloud |
+| `meshed-poisson.ply` | Poisson-meshed surface |
+| `meshed-delaunay.ply` | Delaunay-meshed surface |
+| `textured/` | Textured mesh (`mesh.ply` with per-face UV coordinates and `texture.png`) |
+| `run-colmap-geometric.sh` | Example CLI commands for geometric dense reconstruction |
+| `run-colmap-photometric.sh` | Example CLI commands for photometric dense reconstruction |
+
+### Depth and normal maps
+
+Depth and normal maps are stored as mixed text/binary files:
+
+- **Header**: text in the format `width&height&channels&`
+- **Data**: row-major `float32` binary values
+
+For depth maps, `channels=1`. For normal maps, `channels=3`.
+
+<Tabs>
+  <Tab title="Python">
+    Read depth and normal maps using pycolmap.
+  </Tab>
+  <Tab title="Matlab">
+    Use the functions in `scripts/matlab/read_depth_map.m` and `scripts/matlab/read_normal_map.m`.
+  </Tab>
+</Tabs>
+
+### Consistency graphs
+
+Consistency graphs define, for each pixel in an image, which source images that pixel is consistent with. They use the same text header format as depth maps, followed by a continuous list of `int32` values in the format:
+
+```text
+<row><col><N><image_idx1>...<image_idxN>
+```
+
+Where `(row, col)` identifies the pixel and `N` is the number of consistent source images. Image indices are zero-based, ordered according to `images.txt`.

@@ -1,0 +1,384 @@
+---
+title: "Installation"
+description: "Download pre-built binaries or build COLMAP from source on Linux, Mac, or Windows."
+---
+
+You can either download one of the pre-built binaries or build COLMAP from source. Pre-built binaries and other resources can be downloaded from [demuc.de/colmap](https://demuc.de/colmap/).
+
+COLMAP can be used as an independent application through the command-line or graphical user interface. Alternatively, COLMAP is built as a reusable library you can link against your own C++ source code, as described [below](#library). You can also use most of COLMAP's functionality via [PyCOLMAP](/pycolmap/index) in Python.
+
+## Pre-built binaries
+
+<Tabs>
+  <Tab title="Windows">
+    The pre-built binaries for Windows contain both the graphical and command-line interface executables. To start the COLMAP GUI, double-click the `COLMAP.bat` batch script or run it from the Windows command shell or PowerShell.
+
+    The command-line interface is also accessible through this batch script, which automatically sets the necessary library paths. To list the available COLMAP commands, run:
+
+    ```bat
+    COLMAP.bat -h
+    ```
+
+    <Note>
+      The first time you run COLMAP, Windows Defender may prompt you with a security warning because the binaries are not officially signed. The provided COLMAP binaries are automatically built from GitHub Actions CI machines. If you do not trust them, you can [build from source](#build-from-source).
+    </Note>
+  </Tab>
+  <Tab title="Mac">
+    [Homebrew](https://brew.sh) provides a formula for COLMAP with pre-compiled binaries or the option to build from source. After installing Homebrew, install COLMAP with:
+
+    ```bash
+    brew install colmap
+    ```
+
+    An overview of system packages for Linux/Unix/BSD distributions is available at [repology.org/metapackage/colmap/versions](https://repology.org/metapackage/colmap/versions).
+
+    <Note>
+      Packages in default Linux/Unix/BSD repositories do not include CUDA support. CUDA requires a manual build from source.
+    </Note>
+  </Tab>
+  <Tab title="Docker">
+    COLMAP provides a pre-built Docker image with CUDA support. For detailed instructions on how to build and run COLMAP using Docker, refer to the [Docker documentation](https://github.com/colmap/colmap/tree/main/docker).
+  </Tab>
+</Tabs>
+
+## Build from source
+
+COLMAP builds on all major platforms (Linux, Mac, Windows) with little effort. First, clone the latest source code:
+
+```bash
+git clone https://github.com/colmap/colmap
+```
+
+Under Linux and Mac, it is generally recommended to use the system package manager to install dependencies. The VCPKG approach is the method of choice on Windows, compute clusters, or if you do not have root access.
+
+<Tabs>
+  <Tab title="Debian/Ubuntu">
+    **Recommended:** CUDA (at least version 11.x)
+
+    Install dependencies from the default Ubuntu repositories:
+
+    ```bash
+    sudo apt-get install \
+        git \
+        cmake \
+        ninja-build \
+        build-essential \
+        libboost-program-options-dev \
+        libboost-graph-dev \
+        libboost-system-dev \
+        libeigen3-dev \
+        libopenimageio-dev \
+        openimageio-tools \
+        libmetis-dev \
+        libgoogle-glog-dev \
+        libgtest-dev \
+        libgmock-dev \
+        libsqlite3-dev \
+        libglew-dev \
+        qt6-base-dev \
+        libqt6opengl6-dev \
+        libqt6openglwidgets6 \
+        libcgal-dev \
+        libceres-dev \
+        libsuitesparse-dev \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libmkl-full-dev
+    # Fix issue in Ubuntu's openimageio CMake config.
+    # We don't depend on any of openimageio's OpenCV functionality,
+    # but it still requires the OpenCV include directory to exist.
+    sudo mkdir -p /usr/include/opencv4
+    ```
+
+    Alternatively, build against Qt 5 instead of Qt 6:
+
+    ```bash
+    qtbase5-dev libqt5opengl5-dev
+    ```
+
+    To compile with **CUDA support**, install Ubuntu's default CUDA package:
+
+    ```bash
+    sudo apt-get install -y \
+        nvidia-cuda-toolkit \
+        nvidia-cuda-toolkit-gcc
+    ```
+
+    Or install the latest CUDA manually from NVIDIA's website. During CMake configuration, specify `-DCMAKE_CUDA_ARCHITECTURES=native` to target your current machine only, `all` or `all-major` to distribute to other machines, or a specific architecture like `75`.
+
+    Configure and compile COLMAP:
+
+    ```bash
+    git clone https://github.com/colmap/colmap.git
+    cd colmap
+    mkdir build
+    cd build
+    cmake .. -GNinja -DBLA_VENDOR=Intel10_64lp
+    ninja
+    sudo ninja install
+    ```
+
+    Run COLMAP:
+
+    ```bash
+    colmap -h
+    colmap gui
+    ```
+
+    <Warning>
+      Under **Ubuntu 22.04**, there is a known problem when compiling with Ubuntu's default CUDA package and GCC. You must compile against GCC 10:
+
+      ```bash
+      sudo apt-get install gcc-10 g++-10
+      export CC=/usr/bin/gcc-10
+      export CXX=/usr/bin/g++-10
+      export CUDAHOSTCXX=/usr/bin/g++-10
+      # ... and then run CMake against COLMAP's sources.
+      ```
+    </Warning>
+
+    <Note>
+      The `BLA_VENDOR=Intel10_64lp` option tells CMake to find Intel's MKL implementation of BLAS. If you compile against OpenBLAS instead of MKL, you must install and select the OpenMP version under Debian/Ubuntu due to [this issue](https://github.com/facebookresearch/faiss/wiki/Troubleshooting#surprising-faiss-openmp-and-openblas-interaction).
+    </Note>
+  </Tab>
+  <Tab title="Mac">
+    Install dependencies from [Homebrew](https://brew.sh):
+
+    ```bash
+    brew install \
+        cmake \
+        ninja \
+        boost \
+        eigen \
+        openimageio \
+        curl \
+        libomp \
+        metis \
+        glog \
+        googletest \
+        ceres-solver \
+        suitesparse \
+        qt \
+        glew \
+        cgal \
+        sqlite3
+    brew link --force libomp
+    ```
+
+    Configure and compile COLMAP:
+
+    ```bash
+    git clone https://github.com/colmap/colmap.git
+    cd colmap
+    mkdir build
+    cd build
+    cmake .. -GNinja
+    ninja
+    sudo ninja install
+    ```
+
+    Run COLMAP:
+
+    ```bash
+    colmap -h
+    colmap gui
+    ```
+
+    <Tip>
+      If you have Qt 5 installed alongside Qt 6, you may need to temporarily relink Qt before configuring CMake:
+
+      ```bash
+      brew unlink qt && brew link --force qt
+      cmake ..
+      ```
+    </Tip>
+  </Tab>
+  <Tab title="Windows (VCPKG)">
+    **Recommended:** CUDA (at least version 11.x), Visual Studio 2019 or newer.
+
+    On Windows, the recommended approach is to build COLMAP using VCPKG:
+
+    ```powershell
+    git clone https://github.com/microsoft/vcpkg
+    cd vcpkg
+    .\bootstrap-vcpkg.bat
+    .\vcpkg install colmap[cuda,tests]:x64-windows
+    ```
+
+    To compile CUDA for multiple compute architectures:
+
+    ```powershell
+    .\vcpkg install colmap[cuda-redist]:x64-windows
+    ```
+  </Tab>
+  <Tab title="VCPKG (cross-platform)">
+    COLMAP ships as part of the VCPKG distribution, enabling you to build COLMAP and all of its dependencies from scratch on different platforms. VCPKG requires you to install CUDA manually.
+
+    ```bash
+    git clone https://github.com/microsoft/vcpkg
+    cd vcpkg
+    ./bootstrap-vcpkg.sh
+    ./vcpkg install colmap:x64-linux
+    ```
+
+    VCPKG ships with support for various platforms (e.g., `x64-osx`, `x64-windows`). To compile with CUDA support and build all tests:
+
+    ```bash
+    ./vcpkg install colmap[cuda,tests]:x64-linux
+    ```
+
+    To compile the latest commit from the dev branch:
+
+    ```bash
+    ./vcpkg install colmap:x64-linux --head
+    ```
+
+    To modify the source code, add `--editable --no-downloads`. Or, to build from a separate folder using VCPKG dependencies, first run `./vcpkg integrate install` (on Windows use PowerShell with `./scripts/shell/enter_vs_dev_shell.ps1`), then configure COLMAP:
+
+    ```bash
+    cd path/to/colmap
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_TOOLCHAIN_FILE=path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+    cmake --build . --config release --target colmap --parallel 24
+    ```
+  </Tab>
+  <Tab title="Anaconda/Mamba">
+    Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) and run the following commands. You can replace `conda` with `mamba` for faster package installation:
+
+    ```bash
+    conda create -n colmap python=3.12
+    conda config --add channels conda-forge
+    conda config --set channel_priority strict
+    conda install \
+        cmake \
+        ninja \
+        boost \
+        ccache \
+        eigen \
+        openimageio \
+        curl \
+        metis \
+        glog \
+        gtest \
+        ceres-solver \
+        suitesparse \
+        qt \
+        glew \
+        sqlite \
+        cgal-cpp \
+        mesa-libgl-devel-cos7-x86_64 \
+        cuda-compiler==12.6.2 \
+        cuda-cudart-dev \
+        cuda-nvrtc-dev \
+        libcurand-dev
+    ```
+
+    Clone and build COLMAP:
+
+    ```bash
+    git clone https://github.com/colmap/colmap.git
+    cd colmap
+    mkdir build
+    cd build
+    cmake .. -GNinja
+    ninja
+    ```
+  </Tab>
+</Tabs>
+
+## Library
+
+If you want to include and link COLMAP against your own C++ library, use CMake as a build configuration tool. After configuring the COLMAP build and running `ninja install` or `make install`, COLMAP automatically installs:
+
+- Headers to `${CMAKE_INSTALL_PREFIX}/include/colmap`
+- Libraries to `${CMAKE_INSTALL_PREFIX}/lib/colmap`
+- CMake configuration to `${CMAKE_INSTALL_PREFIX}/share/colmap`
+
+Compiling your own source against COLMAP is as simple as using the following `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+
+project(SampleProject)
+
+find_package(colmap REQUIRED)
+# or to require a specific version: find_package(colmap 3.4 REQUIRED)
+
+add_executable(hello_world hello_world.cc)
+target_link_libraries(hello_world colmap::colmap)
+```
+
+With the following `hello_world.cc` source:
+
+```cpp
+#include <cstdlib>
+#include <iostream>
+
+#include <colmap/controllers/option_manager.h>
+#include <colmap/util/string.h>
+
+int main(int argc, char** argv) {
+    colmap::InitializeGlog(argv);
+
+    std::string message;
+    colmap::OptionManager options;
+    options.AddRequiredOption("message", &message);
+    if (!options.Parse(argc, argv)) {
+        return EXIT_FAILURE;
+    }
+
+    std::cout << colmap::StringPrintf("Hello %s!\n", message.c_str());
+
+    return EXIT_SUCCESS;
+}
+```
+
+Then compile and run:
+
+```bash
+mkdir build
+cd build
+export colmap_DIR=${CMAKE_INSTALL_PREFIX}/share/colmap
+cmake .. -GNinja
+ninja
+./hello_world --message "world"
+```
+
+The sources for this example are stored under `doc/sample-project`.
+
+## Shared libraries
+
+By default, COLMAP builds static libraries. To build shared/dynamic libraries instead, enable the `BUILD_SHARED_LIBS` option:
+
+```bash
+cmake .. -GNinja -DBUILD_SHARED_LIBS=ON
+```
+
+Trade-offs compared to static libraries:
+
+| | Shared | Static |
+|---|---|---|
+| Incremental linking | Faster — only the changed library is re-linked | Slower — all executables re-link |
+| Disk and memory usage | Reduced — executables share library files | Higher — each executable bundles the library |
+| Cross-library optimization | Disabled — no LTO/IPO across boundaries | Enabled — compiler can inline across boundaries |
+| Symbol resolution | Load-time overhead from dynamic linker | No overhead |
+
+<Tip>
+  Shared libraries can significantly speed up edit-compile-test cycles during development. For production or benchmarking, static libraries are recommended.
+</Tip>
+
+## AddressSanitizer build
+
+To build COLMAP with AddressSanitizer (ASan) enabled, use a recent compiler with ASan support. For example, with Clang on Ubuntu:
+
+```bash
+CC=/usr/bin/clang CXX=/usr/bin/clang++ cmake .. \
+    -DASAN_ENABLED=ON \
+    -DTESTS_ENABLED=ON \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+```
+
+<Note>
+  It is generally useful to combine ASan with debug symbols (`RelWithDebInfo`) to get meaningful stack traces for reported issues.
+</Note>

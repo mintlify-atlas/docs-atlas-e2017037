@@ -1,0 +1,69 @@
+---
+title: "Key Concepts"
+description: "Core abstractions in COLMAP: sensors, measurements, rigs, and frames for modeling multi-sensor platforms."
+---
+
+Starting from COLMAP 3.12, the concepts of rigs and frames have been introduced to enable principled modeling of multi-sensor platforms as well as 360° panorama images. These concepts provide a structured framework to organize sensors and their measurements, enabling more flexible calibration and fusion of diverse data types.
+
+<Note>
+  These additions are backward-compatible and do not affect the traditional, default usage of COLMAP for single-camera capture setups.
+</Note>
+
+## Sensors and measurements
+
+A **sensor** is a device that captures data about the environment, producing measurements at specific timestamps. The most common sensor type is the camera, which captures images as its measurements. Other examples include:
+
+- **IMUs** (Inertial Measurement Units) — record acceleration and angular velocity
+- **GNSS receivers** — provide absolute position data
+
+Currently, COLMAP supports only cameras and their image measurements. The sensor concept is designed to extend to other types such as IMUs and GNSS for future support of multi-modal data fusion.
+
+## Rigs
+
+A **rig** models a platform composed of multiple sensors with fixed relative poses, enabling synchronized and consistent multi-sensor data collection.
+
+<CardGroup cols={2}>
+  <Card title="Stereo cameras" icon="camera">
+    Two cameras with a fixed baseline used for depth estimation and stereo reconstruction.
+  </Card>
+  <Card title="AR/VR headsets" icon="glasses">
+    Headworn devices with multiple cameras and sensors in fixed relative positions.
+  </Card>
+  <Card title="Autonomous driving suites" icon="car">
+    Multi-sensor platforms combining cameras, LiDAR, and GNSS receivers.
+  </Card>
+  <Card title="360° panoramas" icon="globe">
+    Virtual rigs modeling multiple cameras arranged to capture overlapping views for seamless panoramic images.
+  </Card>
+</CardGroup>
+
+In COLMAP, each sensor must be uniquely associated with exactly one rig. Each rig has a single **reference sensor** that defines its origin:
+
+- In a stereo camera rig, one camera is designated as the reference sensor with an identity `sensor_from_rig` pose, while the second camera's pose is defined relative to this reference.
+- In a single-camera setup, the camera itself serves as the sole reference sensor for its rig.
+
+## Frames
+
+A **frame** represents a rig captured at a single timestamp, containing measurements from one or more sensors within that rig.
+
+For example, if a rig consists of three sensors, a frame may include measurements from all three sensors or only a subset, depending on availability. This concept allows association of multi-sensor data at specific points in time.
+
+**Example:** In a stereo camera rig recording video, each frame corresponds to a set of two images — one from each camera — captured at the same moment.
+
+## Relationship between concepts
+
+| Concept | Description | Example |
+|---|---|---|
+| Sensor | A device that captures data | Camera, IMU, GNSS |
+| Measurement | Data produced by a sensor at a timestamp | Image captured by a camera |
+| Rig | A platform of sensors with fixed relative poses | Stereo camera pair |
+| Frame | A specific instance of a rig at one timestamp | Two simultaneous images from a stereo rig |
+
+## Backward compatibility
+
+When running the standard reconstruction pipeline without explicit rig configuration:
+
+- Each camera is modeled as a separate rig with itself as the sole reference sensor.
+- Each frame contains only a single image.
+
+This default behavior is identical to COLMAP's behavior before version 3.12, so existing workflows continue to work unchanged. To use multi-sensor rigs, see [Rig Support](/rigs).

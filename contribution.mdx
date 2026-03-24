@@ -1,0 +1,69 @@
+---
+title: "Contributing"
+description: "Guidelines for contributing bug reports, bug fixes, and improvements to COLMAP."
+---
+
+Contributions — bug reports, bug fixes, improvements, and new features — are very welcome. All contributions should be submitted as GitHub issues or pull requests.
+
+## How to contribute
+
+<Steps>
+  <Step title="Open an issue or pull request">
+    Submit bug reports as [GitHub Issues](https://github.com/colmap/colmap/issues). For bug fixes or improvements, open a [Pull Request](https://github.com/colmap/colmap/pulls) against the main branch.
+  </Step>
+  <Step title="Follow the code style guidelines">
+    COLMAP follows the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html). Apply the provided `.clang-format` file to automatically format your code.
+  </Step>
+  <Step title="Document your code">
+    Add inline documentation strings for all new functions, methods, and classes describing the API. See the format below.
+  </Step>
+  <Step title="Write unit tests">
+    Add unit tests for all newly added code. Make sure that algorithmic improvements generalize and actually improve results on a variety of datasets — not just a single benchmark.
+  </Step>
+</Steps>
+
+## Code style
+
+COLMAP follows the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html). Use the provided `.clang-format` file to format code automatically:
+
+```bash
+clang-format -i --style=file path/to/your/file.cc
+```
+
+## Documentation format
+
+Document functions, methods, and classes using the following inline comment format:
+
+```cpp
+// Short description.
+//
+// Longer description with a few sentences and multiple lines.
+//
+// @param parameter1            Description for parameter 1.
+// @param parameter2            Description for parameter 2.
+//
+// @return                      Description of optional return value.
+```
+
+## Pull request guidelines
+
+<CardGroup cols={2}>
+  <Card title="Bug fixes" icon="bug">
+    Reference the issue number in the PR description. Include a test case that reproduces the bug and confirms the fix.
+  </Card>
+  <Card title="New features" icon="sparkles">
+    Discuss the feature in a GitHub issue before implementing. Ensure improvements generalize across a variety of datasets.
+  </Card>
+  <Card title="Tests" icon="flask">
+    Add unit tests for all new code. Ensure existing tests continue to pass.
+  </Card>
+  <Card title="Code style" icon="code">
+    Apply `.clang-format` before submitting. Follow the Google C++ Style Guide and document all public APIs.
+  </Card>
+</CardGroup>
+
+## Resources
+
+- [GitHub Issues](https://github.com/colmap/colmap/issues) — report bugs or request features
+- [GitHub Pull Requests](https://github.com/colmap/colmap/pulls) — submit contributions
+- [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html) — code style reference

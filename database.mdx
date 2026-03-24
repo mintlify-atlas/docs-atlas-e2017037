@@ -1,0 +1,122 @@
+---
+title: "Database"
+description: "COLMAP stores all extracted data in a single SQLite database file with tables for cameras, images, features, matches, and geometries."
+---
+
+COLMAP stores all extracted information in a single SQLite database file. You can access the database using:
+
+- The database management toolkit in the COLMAP GUI
+- The C++ database API (`src/colmap/scene/database.h`)
+- Python via pycolmap
+
+## Database tables
+
+The database contains the following tables:
+
+| Table | Description |
+|---|---|
+| `rigs` | Rig configurations and sensor assignments |
+| `cameras` | Camera intrinsic parameters |
+| `frames` | Specific rig instances (which sensors fired together) |
+| `images` | Per-image extrinsic parameters and metadata |
+| `keypoints` | Detected feature locations per image |
+| `descriptors` | Feature descriptors per image |
+| `matches` | Raw feature matches between image pairs |
+| `two_view_geometries` | Geometrically verified matches between image pairs |
+
+## Creating a database
+
+To initialize an empty SQLite database file with the required schema:
+
+<Tabs>
+  <Tab title="GUI">
+    Create a new project in the COLMAP GUI. This automatically initializes the database.
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    colmap database_creator --database_path /path/to/database.db
+    ```
+  </Tab>
+</Tabs>
+
+## Table details
+
+### Rigs and sensors
+
+The relation between rigs and sensors (cameras, etc.) is 1-to-N. One sensor is designated as the **reference sensor** to define the origin of the rig. Each sensor must belong to exactly one rig.
+
+### Rigs and frames
+
+The relation between rigs and frames is 1-to-N. A frame defines a specific instance of the rig where all or a subset of sensors are exposed at the same time.
+
+### Cameras and images
+
+The relation between cameras and images is 1-to-N:
+
+- A **camera** defines shared intrinsic parameters (focal length, principal point, distortion, etc.)
+- Each **image** has its own extrinsic parameters (orientation and location)
+
+Intrinsic parameters are stored as contiguous binary blobs in `float64`, ordered as specified in `src/colmap/sensor/models.h`. COLMAP only uses cameras that are referenced by at least one image.
+
+The `name` column in the `images` table stores the unique relative path within the image folder. The database file and image folder can be moved to different locations as long as the relative folder structure is preserved.
+
+<Warning>
+When manually inserting images and cameras into the database, all identifiers must be positive and non-zero: `image_id > 0` and `camera_id > 0`.
+</Warning>
+
+### Keypoints and descriptors
+
+Detected keypoints are stored as row-major `float32` binary blobs. The number of columns determines the feature geometry type:
+
+| Columns | Geometry | Description |
+|---|---|---|
+| 2 | Point | X and Y location only |
+| 4 | Similarity | X, Y, scale, orientation (SIFT convention) |
+| 6 | Affinity | X, Y, and 4 columns encoding affine shape |
+
+The coordinate origin is the upper-left image corner `(0, 0)`. The center of the upper-left pixel is at `(0.5, 0.5)`.
+
+Extracted descriptors are row-major binary blobs, where each row corresponds to the matching entry in the keypoints table. Data type and size depend on the feature extractor:
+
+| Extractor | Type | Dimensions | Bytes per feature |
+|---|---|---|---|
+| SIFT | `uint8` | 128 | 128 bytes |
+| ALIKED | `float32` | 128 | 512 bytes |
+
+The `cols` column in the descriptors table specifies the number of bytes per descriptor row. For `uint8` descriptors this equals the descriptor dimension; for `float32` descriptors this equals `4 × dimension`.
+
+The `rows` column in both tables specifies the number of detected features per image. A value of `rows=0` means the image has no features.
+
+<Note>
+For feature matching and geometric verification, every image must have a corresponding entry in both the `keypoints` and `descriptors` tables. Only vocabulary tree matching with fast spatial verification requires meaningful values for the local feature geometry — all other pipeline stages only use X and Y locations.
+</Note>
+
+### Matches and two-view geometries
+
+Feature matching stores its output in the `matches` table. Geometric verification stores its output in the `two_view_geometries` table. **COLMAP only uses `two_view_geometries` for reconstruction.**
+
+Each entry stores feature matches between a unique pair of images. The `pair_id` is a row-major, linear index into the upper-triangular match matrix:
+
+```python
+def image_ids_to_pair_id(image_id1, image_id2):
+    if image_id1 > image_id2:
+        return 2147483647 * image_id2 + image_id1
+    else:
+        return 2147483647 * image_id1 + image_id2
+
+def pair_id_to_image_ids(pair_id):
+    image_id2 = pair_id % 2147483647
+    image_id1 = (pair_id - image_id2) / 2147483647
+    return image_id1, image_id2
+```
+
+This scheme limits the maximum number of images in a database to 2,147,483,647 (the maximum value of a signed 32-bit integer). The `pair_id` enables efficient queries on matches tables that may contain several hundred million entries.
+
+The binary blobs in the matches tables are row-major `uint32` matrices where:
+
+- The left column contains zero-based indices into the features of `image_id1`
+- The right column contains zero-based indices into the features of `image_id2`
+- `cols` must equal 2
+- `rows` specifies the number of feature matches
+
+The F (fundamental matrix), E (essential matrix), and H (homography) blobs in the `two_view_geometries` table are stored as 3×3 matrices in row-major `float64` format. The meaning of the `config` values is documented in `src/colmap/estimators/two_view_geometry.h`.

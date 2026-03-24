@@ -1,0 +1,263 @@
+---
+title: "Rig Support"
+description: "Configure multi-sensor rigs in COLMAP for stereo cameras, 360° panoramas, and AR/VR devices."
+---
+
+COLMAP has native support for modeling sensor rigs during the reconstruction process. The sensors in a rig are assumed to have fixed relative poses between each other, with one reference sensor defining the origin of the rig. A frame defines a specific instance of the rig with all or a subset of sensors exposed at the same time.
+
+**Example:** In a stereo camera rig, one camera is the reference sensor with an identity `sensor_from_rig` pose. The second camera is posed relative to the reference. Each frame is composed of two images — one from each camera — captured at the same time.
+
+<Note>
+  By default, when running the standard reconstruction pipeline, each camera is modeled as a separate rig and each frame contains only a single image. This is fully backward-compatible with existing workflows.
+</Note>
+
+## Use cases
+
+<CardGroup cols={2}>
+  <Card title="Stereo cameras" icon="camera">
+    Two cameras with a fixed baseline. One camera is the reference sensor; the second is posed relative to it.
+  </Card>
+  <Card title="360° panoramas" icon="globe">
+    Multiple virtual pinhole cameras arranged as a rig to reconstruct from 360° spherical images.
+  </Card>
+  <Card title="AR/VR headsets" icon="glasses">
+    Headworn devices with multiple cameras in fixed relative positions.
+  </Card>
+  <Card title="Autonomous driving" icon="car">
+    Multi-sensor suites with cameras and other sensors at fixed positions on a vehicle.
+  </Card>
+</CardGroup>
+
+## Workflow with known rig poses
+
+<Steps>
+  <Step title="Organize images by rig and camera">
+    Structure your image directory so that images from the same frame share identical filenames across all camera folders:
+
+    ```
+    rig1/
+        camera1/
+            image0001.jpg
+            image0002.jpg
+            ...
+        camera2/
+            image0001.jpg  # same frame as camera1/image0001.jpg
+            image0002.jpg  # same frame as camera1/image0002.jpg
+            ...
+    rig2/
+        camera1/
+            ...
+    ```
+  </Step>
+  <Step title="Extract features">
+    Run feature extraction with `--ImageReader.single_camera_per_folder 1` so each folder is assigned its own camera model:
+
+    ```bash
+    colmap feature_extractor \
+        --image_path $DATASET_PATH/images \
+        --database_path $DATASET_PATH/database.db \
+        --ImageReader.single_camera_per_folder 1
+    ```
+  </Step>
+  <Step title="Configure rig relationships">
+    Apply your rig configuration to the database using `rig_configurator`:
+
+    ```bash
+    colmap rig_configurator \
+        --database_path $DATASET_PATH/database.db \
+        --rig_config_path $DATASET_PATH/rig_config.json
+    ```
+
+    This step modifies the rig and frame configuration in the database, which is then used as input to all downstream processing steps.
+  </Step>
+  <Step title="Run feature matching">
+    Run standard feature matching after configuring rigs. This is important for sequential matching, as images in consecutive frames are automatically matched against each other:
+
+    ```bash
+    colmap sequential_matcher --database_path $DATASET_PATH/database.db
+    ```
+  </Step>
+  <Step title="Reconstruct the scene">
+    Run the mapper. Use `--Mapper.ba_refine_sensor_from_rig 0` to keep relative sensor poses in the rig fixed:
+
+    ```bash
+    colmap mapper \
+        --image_path $DATASET_PATH/images \
+        --database_path $DATASET_PATH/database.db \
+        --output_path $DATASET_PATH/sparse
+    ```
+  </Step>
+</Steps>
+
+## Rig configuration file
+
+The `rig_config.json` defines which cameras belong to each rig and their relative poses. The reference sensor is marked with `"ref_sensor": true`.
+
+```json
+[
+  {
+    "cameras": [
+      {
+        "image_prefix": "rig1/camera1/",
+        "ref_sensor": true
+      },
+      {
+        "image_prefix": "rig1/camera2/",
+        "cam_from_rig_rotation": [
+            0.7071067811865475,
+            0.0,
+            0.7071067811865476,
+            0.0
+        ],
+        "cam_from_rig_translation": [
+            0,
+            0,
+            0
+        ]
+      }
+    ]
+  },
+  {
+    "cameras": [
+      {
+        "image_prefix": "rig2/camera1/",
+        "ref_sensor": true
+      }
+    ]
+  }
+]
+```
+
+With known calibrated camera parameters, each camera can also include `camera_model_name` and `camera_params` fields.
+
+## Workflow with unknown rig poses
+
+If the relative poses between sensors are not known a priori, use a two-step approach:
+
+<Steps>
+  <Step title="Prepare images and extract features">
+    Organize images and run feature extraction with `--ImageReader.single_camera_per_folder 1`, as described above.
+  </Step>
+  <Step title="Reconstruct without rig constraints">
+    Run a standard reconstruction with each camera as its own rig (the default). This can be a partial reconstruction from a subset of input images.
+
+    <Note>
+      Each camera must have at least one registered image in the same frame with a registered image of the reference camera.
+    </Note>
+  </Step>
+  <Step title="Infer rig poses from reconstruction">
+    Run `rig_configurator` with the existing reconstruction as input. It computes the average relative rig sensor poses from all registered images. Omit `cam_from_rig_rotation` and `cam_from_rig_translation` from `rig_config.json`:
+
+    ```bash
+    colmap rig_configurator \
+        --database_path $DATASET_PATH/database.db \
+        --input_path $DATASET_PATH/sparse-model-without-rigs-and-frames \
+        --rig_config_path $DATASET_PATH/rig_config.json \
+        --output_path $DATASET_PATH/sparse-model-with-rigs-and-frames
+    ```
+  </Step>
+  <Step title="Refine or reconstruct with rig constraints">
+    Either run rig bundle adjustment on the output reconstruction:
+
+    ```bash
+    colmap bundle_adjuster \
+        --input_path $DATASET_PATH/sparse-model-with-rigs-and-frames \
+        --output_path $DATASET_PATH/bundled-sparse-model-with-rigs-and-frames
+    ```
+
+    Or start the reconstruction from scratch with rig constraints for potentially more accurate results:
+
+    ```bash
+    colmap mapper \
+        --image_path $DATASET_PATH/images \
+        --database_path $DATASET_PATH/database.db \
+        --output_path $DATASET_PATH/sparse-model-with-rigs-and-frames
+    ```
+  </Step>
+</Steps>
+
+## End-to-end example: ETH3D rig dataset
+
+This example reconstructs one of the ETH3D rig datasets using COLMAP's rig support:
+
+```bash
+# Download and extract the dataset
+wget https://www.eth3d.net/data/terrains_rig_undistorted.7z
+7zz x terrains_rig_undistorted.7z
+
+# Extract features, one camera per folder
+colmap feature_extractor \
+    --database_path terrains/database.db \
+    --image_path terrains/images \
+    --ImageReader.single_camera_per_folder 1
+
+# Configure rig from groundtruth calibration reconstruction
+colmap rig_configurator \
+    --database_path terrains/database.db \
+    --rig_config_path terrains/rig_config.json \
+    --input_path terrains/rig_calibration_undistorted
+
+# Match frames sequentially (video capture)
+colmap sequential_matcher --database_path terrains/database.db
+
+# Reconstruct with fixed rig poses and camera parameters
+mkdir -p terrains/sparse
+colmap mapper \
+    --database_path terrains/database.db \
+    --Mapper.ba_refine_sensor_from_rig 0 \
+    --Mapper.ba_refine_focal_length 0 \
+    --Mapper.ba_refine_extra_params 0 \
+    --image_path terrains/images \
+    --output_path terrains/sparse
+```
+
+The `rig_config.json` for this dataset (sensor poses inferred from the provided groundtruth reconstruction):
+
+```json
+[
+    {
+        "cameras": [
+            {
+                "image_prefix": "images_rig_cam4_undistorted/",
+                "ref_sensor": true
+            },
+            {
+                "image_prefix": "images_rig_cam5_undistorted/"
+            },
+            {
+                "image_prefix": "images_rig_cam6_undistorted/"
+            },
+            {
+                "image_prefix": "images_rig_cam7_undistorted/"
+            }
+        ]
+    }
+]
+```
+
+## 360° spherical image reconstruction
+
+COLMAP handles collections of 360° panoramas by rendering virtual pinhole images (similar to a cubemap) and treating them as a camera rig. Since the rig extrinsics and camera intrinsics are known, the reconstruction process is more robust.
+
+```bash
+python python/examples/panorama_sfm.py \
+    --input_image_path image_directory \
+    --output_path output_directory
+```
+
+<Warning>
+  Use the version of the script that corresponds to your installed version of COLMAP. The script at HEAD is not guaranteed to be compatible with older releases.
+</Warning>
+
+## Feature matching options for rigs
+
+Depending on the accuracy of your `sensor_from_rig` poses, you can enable additional matching options:
+
+| Option | Description |
+|---|---|
+| `--FeatureMatching.rig_verification 1` | Enable rig-based geometric verification during matching |
+| `--FeatureMatching.skip_image_pairs_in_same_frame 1` | Skip matching between sensors in the same frame when there is no visual overlap |
+
+## Advanced configuration
+
+For fine-grained control over rigs and frames, use [pycolmap](https://github.com/colmap/colmap) to configure the database directly — either via the `apply_rig_config` function or by individually adding rig and frame objects to the reconstruction.
