@@ -337,9 +337,9 @@ After obtaining a sparse reconstruction and camera poses from SfM, MVS recovers 
 
     ```bash
     colmap mesh_texturer \
-        --input_path path/to/project/dense/0 \
-        --input_mesh_path path/to/project/dense/0/meshed-poisson.ply \
-        --output_path path/to/project/dense/0/meshed-textured.ply
+        --workspace_path path/to/project/dense/0 \
+        --input_path path/to/project/dense/0/meshed-poisson.ply \
+        --output_path path/to/project/dense/0/meshed-textured
     ```
 
     Dense surface meshes must be visualized with external software such as Meshlab.

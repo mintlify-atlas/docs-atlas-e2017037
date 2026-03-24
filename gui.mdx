@@ -43,13 +43,13 @@ The GUI requires an attached display with at least OpenGL 3.2 support.
     Choose **Processing > Extract features**. COLMAP reads each image, detects keypoints, and stores descriptors in the project database.
   </Step>
   <Step title="Match features">
-    Choose **Processing > Match features**. Select a matching strategy (exhaustive, sequential, vocabulary tree, spatial, or transitive) based on your dataset type.
+    Choose **Processing > Feature matching**. Select a matching strategy (exhaustive, sequential, vocabulary tree, spatial, or transitive) based on your dataset type.
   </Step>
   <Step title="Run sparse reconstruction">
-    Choose **Reconstruction > Start reconstruction**. COLMAP runs incremental SfM, registering images and triangulating points. Progress is shown in real-time in the viewer.
+    Choose **Reconstruction > Start**. COLMAP runs incremental SfM, registering images and triangulating points. Progress is shown in real-time in the viewer.
   </Step>
   <Step title="Undistort images (dense prep)">
-    Choose **Reconstruction > Dense reconstruction**, then **Undistortion**. This prepares the workspace for Multi-View Stereo.
+    Choose **Reconstruction > Multi-view stereo** and select a workspace folder, then click **Undistort**. This prepares the workspace for Multi-View Stereo.
   </Step>
   <Step title="Run dense reconstruction">
     In the dense reconstruction dialog, run **Stereo** (patch-match stereo) and then **Fusion** to produce a fused point cloud (`fused.ply`).
